@@ -35,8 +35,6 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
             transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out, bottom 0.3s ease-in-out;
-            opacity: 1;
-            visibility: visible;
         }
         .panel.hidden {
             opacity: 0;
@@ -49,17 +47,24 @@
             justify-content: center;
             gap: 10px;
             z-index: 10;
+            opacity: 1;
+            visibility: visible;
         }
         .settings-panel {
+            position: fixed;
             bottom: -100%; /* Start hidden */
             width: clamp(300px, 90%, 500px);
             display: grid;
             gap: 1rem;
             padding: 20px;
-            z-index: 11; /* FIX: Ensure settings are on top of controls */
+            padding-top: 40px; /* Add padding to avoid overlap with close button */
+            z-index: 11; /* Ensure settings are on top of controls */
+            opacity: 0;
+            visibility: hidden;
         }
         .settings-panel.visible {
-            bottom: 95px; /* Position above controls */
+            opacity: 1;
+            visibility: visible;
         }
         .btn {
             background-color: rgba(31, 41, 55, 0.7);
@@ -130,7 +135,7 @@
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            width: 100%;
+            width: 80px;
             height: 36px;
             background-color: transparent;
             border: 1px solid #4b5563;
@@ -146,6 +151,7 @@
     <canvas id="gameCanvas"></canvas>
 
     <div id="settingsPanel" class="panel settings-panel">
+        <button id="closeSettingsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-2 rounded">&times;</button>
         <div class="form-group">
             <label for="resolutionInput">Square Size</label>
             <div class="input-group">
@@ -159,10 +165,10 @@
             <label for="fpsInput">Frame Rate</label>
             <div class="input-group">
                 <button data-for="fpsInput" data-step="-1">-</button>
-                <input type="number" id="fpsInput" data-key="frameRate" min="1" max="60">
+                <input type="number" id="fpsInput" data-key="frameRate" min="1" max="144">
                 <button data-for="fpsInput" data-step="1">+</button>
             </div>
-            <input type="range" id="fpsSlider" min="1" max="60">
+            <input type="range" id="fpsSlider" min="1" max="144">
         </div>
         <div class="form-group">
             <label for="colorPicker">Cell Color</label>
@@ -242,12 +248,13 @@
     let animationId;
     let isRunning = false, isDrawing = false, uiVisible = true;
     let liveCells = new Map(); // Using Map to store { key: age }
+    let time = 0; // Time variable for dynamic effects
 
     let settings = {
         resolution: 3,
         frameRate: 30,
         cellColor: [6/255, 182/255, 212/255],
-        colorEffect: 4 // Default to Shape Size
+        colorEffect: 4
     };
 
     function log(message, ...args) {
@@ -362,7 +369,9 @@
             let r, g, b;
             switch (settings.colorEffect) {
                 case 1: // Rainbow
-                    [r, g, b] = hslToRgb((col + row) * 0.01 % 1.0, 0.9, 0.6);
+                    const frequency = 0.05;
+                    const hue = (Math.sin(col * frequency + time) + Math.cos(row * frequency + time) + 2) / 4;
+                    [r, g, b] = hslToRgb(hue, 0.9, 0.6);
                     break;
                 case 2: // Neighbor Count
                     const neighborCount = getNeighborCount(col, row);
@@ -411,25 +420,22 @@
 
     function gameLoop() {
         if (!isRunning) return;
+        time += 0.02; // Increment time for dynamic effects
         nextGen();
         render();
         animationId = setTimeout(() => requestAnimationFrame(gameLoop), 1000 / settings.frameRate);
     }
 
     function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(window.innerWidth * dpr);
+        canvas.height = Math.round(window.innerHeight * dpr);
         gl.viewport(0, 0, canvas.width, canvas.height);
 
-        const newCols = Math.ceil(canvas.width / settings.resolution);
-        const newRows = Math.ceil(canvas.height / settings.resolution);
-
-        if (newCols !== cols || newRows !== rows) {
-            cols = newCols;
-            rows = newRows;
-            log(`Resizing grid to ${cols}x${rows}`);
-            randomizeGrid();
-        }
+        cols = Math.ceil(canvas.width / settings.resolution);
+        rows = Math.ceil(canvas.height / settings.resolution);
+        log(`Resizing grid to ${cols}x${rows}`);
+        randomizeGrid();
     }
 
     function randomizeGrid() {
@@ -453,8 +459,9 @@
 
     function toggleCell(event) {
         const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
+        const dpr = window.devicePixelRatio || 1;
+        const x = (event.clientX - rect.left) * dpr;
+        const y = (event.clientY - rect.top) * dpr;
 
         const col = Math.floor(x / settings.resolution);
         const row = Math.floor(y / settings.resolution);
@@ -547,14 +554,14 @@
         return count;
     }
 
-    // --- UI Listeners & Setup ---
     const ui = {
         init() {
             document.getElementById('startStopBtn').addEventListener('click', ui.toggleRun);
             document.getElementById('stepBtn').addEventListener('click', () => { if(!isRunning) { nextGen(); render(); }});
             document.getElementById('randomizeBtn').addEventListener('click', () => { randomizeGrid(); });
             document.getElementById('resetBtn').addEventListener('click', () => { resetGrid(); });
-            document.getElementById('settingsBtn').addEventListener('click', () => document.getElementById('settingsPanel').classList.toggle('visible'));
+            document.getElementById('settingsBtn').addEventListener('click', ui.toggleSettings);
+            document.getElementById('closeSettingsBtn').addEventListener('click', ui.toggleSettings);
             document.getElementById('hideBtn').addEventListener('click', ui.hide);
             document.getElementById('fullscreenBtn').addEventListener('click', ui.toggleFullscreen);
             document.getElementById('copyLogsBtn').addEventListener('click', ui.copyLogs);
@@ -586,6 +593,24 @@
                     ui.updateSetting(input.dataset.key, value);
                 });
             });
+        },
+        toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            const isVisible = panel.classList.toggle('visible');
+            if (isVisible) {
+                ui.updateSettingsPanelPosition();
+            } else {
+                panel.style.bottom = ''; // Let CSS handle hiding
+            }
+        },
+        updateSettingsPanelPosition() {
+            const controlsPanel = document.getElementById('controlsPanel');
+            const settingsPanel = document.getElementById('settingsPanel');
+            if (controlsPanel && settingsPanel) {
+                const controlsHeight = controlsPanel.offsetHeight;
+                const bottomOffset = controlsHeight + 20 + 10; // 20px for controls' bottom, 10px for gap
+                settingsPanel.style.bottom = `${bottomOffset}px`;
+            }
         },
         toggleRun() {
             isRunning = !isRunning;
@@ -661,7 +686,12 @@
             resizeCanvas();
         }
     });
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        if (document.getElementById('settingsPanel').classList.contains('visible')) {
+            ui.updateSettingsPanelPosition();
+        }
+    });
 </script>
 </body>
 </html>
