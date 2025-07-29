@@ -82,8 +82,11 @@
             transform: translateY(-2px);
         }
         .btn.active {
-            background-color: #0e7490;
+            background-color: #dc2626; /* Red for active kill mode */
             color: white;
+        }
+        #startStopBtn.active {
+             background-color: #0e7490;
         }
         .form-group {
             display: grid;
@@ -144,11 +147,21 @@
         }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
+        #killCursor {
+            position: absolute;
+            border-radius: 50%;
+            background-color: rgba(220, 38, 38, 0.3);
+            border: 1px solid rgba(220, 38, 38, 0.7);
+            transform: translate(-50%, -50%);
+            pointer-events: none; /* Allows clicks to pass through to the canvas */
+            z-index: 100;
+        }
     </style>
 </head>
 <body>
 
     <canvas id="gameCanvas"></canvas>
+    <div id="killCursor" class="hidden"></div>
 
     <div id="settingsPanel" class="panel settings-panel">
         <button id="closeSettingsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-2 rounded">&times;</button>
@@ -280,6 +293,7 @@
 <script>
     const canvas = document.getElementById('gameCanvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const killCursor = document.getElementById('killCursor');
     let renderProgram;
     let positionBuffer, colorBuffer;
     let cols = 0, rows = 0;
@@ -593,7 +607,16 @@
             canvas.addEventListener('mousedown', ui.handleMouseDown);
             canvas.addEventListener('mousemove', ui.handleMouseMove);
             canvas.addEventListener('mouseup', () => isDrawing = false);
-            canvas.addEventListener('mouseleave', () => isDrawing = false);
+            canvas.addEventListener('mouseleave', () => {
+                isDrawing = false;
+                killCursor.classList.add('hidden');
+            });
+            canvas.addEventListener('mouseenter', (e) => {
+                if (isKillMode) {
+                    killCursor.classList.remove('hidden');
+                    ui.updateKillCursor(e);
+                }
+            });
 
             document.getElementById('resolutionInput').addEventListener('change', e => ui.updateSetting('resolution', e.target.value));
             document.getElementById('resolutionSlider').addEventListener('input', e => ui.updateSetting('resolution', e.target.value));
@@ -645,6 +668,9 @@
         toggleKillMode() {
             isKillMode = !isKillMode;
             document.getElementById('killModeBtn').classList.toggle('active', isKillMode);
+            if (!isKillMode) {
+                killCursor.classList.add('hidden');
+            }
         },
         hide() {
             document.getElementById('controlsPanel').classList.add('hidden');
@@ -665,8 +691,19 @@
             modifyCells(e);
         },
         handleMouseMove(e) {
+            if (isKillMode) ui.updateKillCursor(e);
             if (isDrawing && uiVisible) {
                 modifyCells(e);
+            }
+        },
+        updateKillCursor(e) {
+            if (isKillMode && uiVisible) {
+                killCursor.classList.remove('hidden');
+                killCursor.style.left = `${e.clientX}px`;
+                killCursor.style.top = `${e.clientY}px`;
+                const size = settings.resolution * 10;
+                killCursor.style.width = `${size}px`;
+                killCursor.style.height = `${size}px`;
             }
         },
         updateSetting(key, value) {
