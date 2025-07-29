@@ -34,7 +34,6 @@
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            z-index: 10;
             transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out, bottom 0.3s ease-in-out;
             opacity: 1;
             visibility: visible;
@@ -49,6 +48,7 @@
             flex-wrap: wrap;
             justify-content: center;
             gap: 10px;
+            z-index: 10;
         }
         .settings-panel {
             bottom: -100%; /* Start hidden */
@@ -56,6 +56,7 @@
             display: grid;
             gap: 1rem;
             padding: 20px;
+            z-index: 11; /* FIX: Ensure settings are on top of controls */
         }
         .settings-panel.visible {
             bottom: 95px; /* Position above controls */
@@ -174,6 +175,7 @@
                 <option value="1">Rainbow</option>
                 <option value="2">Neighbor Count</option>
                 <option value="3">Age</option>
+                <option value="4">Shape Size</option>
             </select>
         </div>
     </div>
@@ -200,8 +202,11 @@
     varying vec3 v_color;
 
     void main() {
+        // Center the position on the pixel to avoid rounding errors and gaps.
+        vec2 centered_position = a_position + 0.5;
+
         // Convert cell coordinates (e.g., 0 to cols) to clip space (-1.0 to 1.0)
-        vec2 zeroToOne = a_position / u_canvasResolution;
+        vec2 zeroToOne = centered_position / u_canvasResolution;
         vec2 zeroToTwo = zeroToOne * 2.0;
         vec2 clipSpace = zeroToTwo - 1.0;
 
@@ -216,12 +221,18 @@
     varying vec3 v_color;
 
     void main() {
+        // By checking the coordinate within the point, we can discard the anti-aliased edges,
+        // effectively creating a sharp square instead of a soft circle.
+        vec2 coord = gl_PointCoord - 0.5;
+        if (abs(coord.x) > 0.5 || abs(coord.y) > 0.5) {
+            discard;
+        }
         gl_FragColor = vec4(v_color, 1.0);
     }
 </script>
 
 <script>
-    const DEBUG = true;
+    const DEBUG = false; // Logging can be disabled now that it's stable.
     let logHistory = [];
     const canvas = document.getElementById('gameCanvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -236,7 +247,7 @@
         resolution: 3,
         frameRate: 30,
         cellColor: [6/255, 182/255, 212/255],
-        colorEffect: 3
+        colorEffect: 4 // Default to Shape Size
     };
 
     function log(message, ...args) {
@@ -337,6 +348,11 @@
         const colors = new Float32Array(liveCells.size * 3);
         let i = 0;
 
+        let shapeMap;
+        if (settings.colorEffect === 4) {
+            shapeMap = findShapes();
+        }
+
         for (const [key, age] of liveCells.entries()) {
             const [col, row] = fromCellKey(key);
 
@@ -356,6 +372,10 @@
                     const normalizedAge = Math.min(age / 50.0, 1.0);
                     [r, g, b] = hslToRgb(0.55 - normalizedAge, 0.9, 0.6);
                     break;
+                case 4: // Shape Size
+                    const size = shapeMap.get(key) || 1;
+                    [r, g, b] = hslToRgb(size * 0.05 % 1.0, 0.85, 0.6);
+                    break;
                 default: // Static
                     [r, g, b] = settings.cellColor;
                     break;
@@ -368,21 +388,18 @@
 
         gl.useProgram(renderProgram);
 
-        // Position attribute
         const positionLocation = gl.getAttribLocation(renderProgram, 'a_position');
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(positionLocation);
         gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
-        // Color attribute
         const colorLocation = gl.getAttribLocation(renderProgram, 'a_color');
         gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(colorLocation);
         gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
 
-        // Uniforms
         const canvasResLoc = gl.getUniformLocation(renderProgram, "u_canvasResolution");
         const pointSizeLoc = gl.getUniformLocation(renderProgram, "u_pointSize");
         gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
@@ -453,7 +470,39 @@
         }
     }
 
-    // --- Color Helpers ---
+    // --- Color & Shape Helpers ---
+    function findShapes() {
+        const visited = new Set();
+        const shapeMap = new Map();
+        for (const key of liveCells.keys()) {
+            if (!visited.has(key)) {
+                const shape = [];
+                const stack = [key];
+                visited.add(key);
+                while (stack.length > 0) {
+                    const currentKey = stack.pop();
+                    shape.push(currentKey);
+                    const [c, r] = fromCellKey(currentKey);
+                    for (let i = -1; i < 2; i++) {
+                        for (let j = -1; j < 2; j++) {
+                            if (i === 0 && j === 0) continue;
+                            const neighborKey = cellKey((c + i + cols) % cols, (r + j + rows) % rows);
+                            if (liveCells.has(neighborKey) && !visited.has(neighborKey)) {
+                                visited.add(neighborKey);
+                                stack.push(neighborKey);
+                            }
+                        }
+                    }
+                }
+                const shapeSize = shape.length;
+                for (const shapeKey of shape) {
+                    shapeMap.set(shapeKey, shapeSize);
+                }
+            }
+        }
+        return shapeMap;
+    }
+
     function hslToRgb(h, s, l) {
         let r, g, b;
         if (s == 0) {
