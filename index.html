@@ -480,7 +480,7 @@
         const row = Math.floor(y / settings.resolution);
 
         if (isKillMode) {
-            const radius = 2; // 5x5 area
+            const radius = 5; // 10x10 area
             for (let i = -radius; i <= radius; i++) {
                 for (let j = -radius; j <= radius; j++) {
                     if (i*i + j*j <= radius*radius) { // circular brush
