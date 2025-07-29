@@ -156,6 +156,37 @@
             pointer-events: none; /* Allows clicks to pass through to the canvas */
             z-index: 100;
         }
+        .mini-controls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 12;
+        }
+        .mini-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: rgba(31, 41, 55, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .mini-btn:hover {
+            background-color: rgba(55, 65, 81, 0.9);
+            transform: scale(1.1);
+        }
+        .mini-btn.active {
+            background-color: #dc2626;
+        }
+         #miniStartStopBtn.active {
+             background-color: #0e7490;
+        }
     </style>
 </head>
 <body>
@@ -217,6 +248,23 @@
         <button id="killModeBtn" class="btn">Kill</button>
         <button id="fullscreenBtn" class="btn">Fullscreen</button>
         <button id="hideBtn" class="btn">Hide</button>
+    </div>
+
+    <div id="miniControlsPanel" class="mini-controls hidden">
+        <button id="miniStartStopBtn" class="mini-btn">
+            <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+        </button>
+        <button id="miniKillModeBtn" class="mini-btn">
+             <svg id="drawIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            <svg id="killIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M20 20a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"></path><path d="M16 16.5 8 8.5"></path><path d="m8 16.5 8-8"></path></svg>
+        </button>
+        <button id="unhideBtn" class="mini-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        </button>
+        <button id="hideAllBtn" class="mini-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+        </button>
     </div>
 
 <script id="vertex-shader" type="x-shader/x-vertex">
@@ -307,7 +355,8 @@
     let positionBuffer, colorBuffer;
     let cols = 0, rows = 0;
     let animationId;
-    let isRunning = false, isDrawing = false, uiVisible = true, isKillMode = false;
+    let isRunning = false, isDrawing = false, isKillMode = false;
+    let uiState = 'full'; // 'full', 'mini', 'hidden'
     let liveCells = new Map();
     let time = 0;
     let worker;
@@ -618,6 +667,10 @@
             document.getElementById('closeSettingsBtn').addEventListener('click', ui.toggleSettings);
             document.getElementById('hideBtn').addEventListener('click', ui.hide);
             document.getElementById('fullscreenBtn').addEventListener('click', ui.toggleFullscreen);
+            document.getElementById('unhideBtn').addEventListener('click', ui.unhide);
+            document.getElementById('miniStartStopBtn').addEventListener('click', ui.toggleRun);
+            document.getElementById('miniKillModeBtn').addEventListener('click', ui.toggleKillMode);
+            document.getElementById('hideAllBtn').addEventListener('click', ui.hideAll);
 
             canvas.addEventListener('mousedown', ui.handleMouseDown);
             canvas.addEventListener('mousemove', ui.handleMouseMove);
@@ -682,21 +735,36 @@
         },
         toggleRun() {
             isRunning = !isRunning;
-            document.getElementById('startStopBtn').textContent = isRunning ? 'Stop' : 'Start';
             document.getElementById('startStopBtn').classList.toggle('active', isRunning);
+            document.getElementById('miniStartStopBtn').classList.toggle('active', isRunning);
+            document.getElementById('playIcon').classList.toggle('hidden', isRunning);
+            document.getElementById('pauseIcon').classList.toggle('hidden', !isRunning);
             if (isRunning) gameLoop(); else clearTimeout(animationId);
         },
         toggleKillMode() {
             isKillMode = !isKillMode;
             document.getElementById('killModeBtn').classList.toggle('active', isKillMode);
+            document.getElementById('miniKillModeBtn').classList.toggle('active', isKillMode);
+            document.getElementById('drawIcon').classList.toggle('hidden', isKillMode);
+            document.getElementById('killIcon').classList.toggle('hidden', !isKillMode);
             if (!isKillMode) {
                 killCursor.classList.add('hidden');
             }
         },
         hide() {
+            uiState = 'mini';
             document.getElementById('controlsPanel').classList.add('hidden');
             document.getElementById('settingsPanel').classList.remove('visible');
-            uiVisible = false;
+            document.getElementById('miniControlsPanel').classList.remove('hidden');
+        },
+        unhide() {
+            uiState = 'full';
+            document.getElementById('controlsPanel').classList.remove('hidden');
+            document.getElementById('miniControlsPanel').classList.add('hidden');
+        },
+        hideAll() {
+            uiState = 'hidden';
+            document.getElementById('miniControlsPanel').classList.add('hidden');
         },
         toggleFullscreen() {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
@@ -704,9 +772,9 @@
         },
         handleMouseDown(e) {
             if(e.touches) e.preventDefault();
-            if (!uiVisible) {
-                document.getElementById('controlsPanel').classList.remove('hidden');
-                uiVisible = true;
+            if (uiState === 'hidden') {
+                uiState = 'mini';
+                document.getElementById('miniControlsPanel').classList.remove('hidden');
                 return;
             }
             isDrawing = true;
@@ -714,13 +782,13 @@
         },
         handleMouseMove(e) {
             if(e.touches) e.preventDefault();
-            if (isKillMode) ui.updateKillCursor(e);
-            if (isDrawing && uiVisible) {
+            ui.updateKillCursor(e);
+            if (isDrawing) {
                 modifyCells(e);
             }
         },
         updateKillCursor(e) {
-            if (isKillMode && uiVisible) {
+            if (isKillMode) {
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                 killCursor.classList.remove('hidden');
