@@ -168,7 +168,7 @@
         <div class="form-group">
             <label for="resolutionInput">Square Size</label>
             <div class="input-group">
-                <button data-for="resolutionInput" data-step="-1">-</button>
+                <button data-for="resolutionInput" data-step="1">-</button>
                 <input type="number" id="resolutionInput" data-key="resolution" min="1" max="30">
                 <button data-for="resolutionInput" data-step="1">+</button>
             </div>
@@ -177,11 +177,20 @@
         <div class="form-group">
             <label for="fpsInput">Frame Rate</label>
             <div class="input-group">
-                <button data-for="fpsInput" data-step="-1">-</button>
+                <button data-for="fpsInput" data-step="1">-</button>
                 <input type="number" id="fpsInput" data-key="frameRate" min="1" max="144">
                 <button data-for="fpsInput" data-step="1">+</button>
             </div>
             <input type="range" id="fpsSlider" min="1" max="144">
+        </div>
+        <div class="form-group">
+            <label for="rainbowSpeedInput">Rainbow Speed</label>
+            <div class="input-group">
+                <button data-for="rainbowSpeedInput" data-step="0.1">-</button>
+                <input type="number" id="rainbowSpeedInput" data-key="rainbowSpeed" min="0.1" max="5" step="0.1">
+                <button data-for="rainbowSpeedInput" data-step="0.1">+</button>
+            </div>
+            <input type="range" id="rainbowSpeedSlider" min="0.1" max="5" step="0.1">
         </div>
         <div class="form-group">
             <label for="colorPicker">Cell Color</label>
@@ -307,6 +316,7 @@
     let settings = {
         resolution: 3,
         frameRate: 30,
+        rainbowSpeed: 1.0,
         cellColor: [6/255, 182/255, 212/255],
         colorEffect: 4
     };
@@ -362,9 +372,12 @@
         worker.onmessage = function(e) {
             liveCells = new Map(e.data);
             isCalculating = false;
+
             if (isRunning) {
                 render();
                 animationId = setTimeout(gameLoop, 1000 / settings.frameRate);
+            } else {
+                render();
             }
         };
     }
@@ -452,8 +465,8 @@
 
     function gameLoop() {
         if (!isRunning) return;
-        time += 0.02;
-        nextGen(); // This will trigger the worker
+        time += 0.02 * settings.rainbowSpeed;
+        nextGen();
     }
 
     function resizeCanvas() {
@@ -487,14 +500,16 @@
     function modifyCells(event) {
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const x = (event.clientX - rect.left) * dpr;
-        const y = (event.clientY - rect.top) * dpr;
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+        const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+        const x = (clientX - rect.left) * dpr;
+        const y = (clientY - rect.top) * dpr;
 
         const col = Math.floor(x / settings.resolution);
         const row = Math.floor(y / settings.resolution);
 
         if (isKillMode) {
-            const radius = 5; // 10x10 area
+            const radius = 10; // 20x20 area
             for (let i = -radius; i <= radius; i++) {
                 for (let j = -radius; j <= radius; j++) {
                     if (i*i + j*j <= radius*radius) { // circular brush
@@ -617,11 +632,16 @@
                     ui.updateKillCursor(e);
                 }
             });
+            canvas.addEventListener('touchstart', ui.handleMouseDown, { passive: false });
+            canvas.addEventListener('touchmove', ui.handleMouseMove, { passive: false });
+            canvas.addEventListener('touchend', () => isDrawing = false);
 
             document.getElementById('resolutionInput').addEventListener('change', e => ui.updateSetting('resolution', e.target.value));
             document.getElementById('resolutionSlider').addEventListener('input', e => ui.updateSetting('resolution', e.target.value));
             document.getElementById('fpsInput').addEventListener('change', e => ui.updateSetting('frameRate', e.target.value));
             document.getElementById('fpsSlider').addEventListener('input', e => ui.updateSetting('frameRate', e.target.value));
+            document.getElementById('rainbowSpeedInput').addEventListener('change', e => ui.updateSetting('rainbowSpeed', e.target.value));
+            document.getElementById('rainbowSpeedSlider').addEventListener('input', e => ui.updateSetting('rainbowSpeed', e.target.value));
             document.getElementById('colorPicker').addEventListener('input', e => {
                 const hex = e.target.value;
                 settings.cellColor = [parseInt(hex.slice(1,3), 16)/255, parseInt(hex.slice(3,5), 16)/255, parseInt(hex.slice(5,7), 16)/255];
@@ -635,8 +655,9 @@
             document.querySelectorAll('.input-group button').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const input = document.getElementById(btn.dataset.for);
-                    let value = parseInt(input.value) + parseInt(btn.dataset.step);
-                    value = Math.max(parseInt(input.min), Math.min(parseInt(input.max), value));
+                    const step = parseFloat(btn.dataset.step);
+                    let value = parseFloat(input.value) + step;
+                    value = Math.max(parseFloat(input.min), Math.min(parseFloat(input.max), value));
                     ui.updateSetting(input.dataset.key, value);
                 });
             });
@@ -682,6 +703,7 @@
             else document.exitFullscreen();
         },
         handleMouseDown(e) {
+            if(e.touches) e.preventDefault();
             if (!uiVisible) {
                 document.getElementById('controlsPanel').classList.remove('hidden');
                 uiVisible = true;
@@ -691,6 +713,7 @@
             modifyCells(e);
         },
         handleMouseMove(e) {
+            if(e.touches) e.preventDefault();
             if (isKillMode) ui.updateKillCursor(e);
             if (isDrawing && uiVisible) {
                 modifyCells(e);
@@ -698,26 +721,39 @@
         },
         updateKillCursor(e) {
             if (isKillMode && uiVisible) {
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
                 killCursor.classList.remove('hidden');
-                killCursor.style.left = `${e.clientX}px`;
-                killCursor.style.top = `${e.clientY}px`;
-                const size = settings.resolution * 10;
+                killCursor.style.left = `${clientX}px`;
+                killCursor.style.top = `${clientY}px`;
+                const dpr = window.devicePixelRatio || 1;
+                const size = (settings.resolution * 20) / dpr;
                 killCursor.style.width = `${size}px`;
                 killCursor.style.height = `${size}px`;
             }
         },
         updateSetting(key, value) {
-            const numValue = parseInt(value);
+            const numValue = parseFloat(value);
             if (isNaN(numValue)) return;
             settings[key] = numValue;
+
+            const inputEl = document.getElementById(key + 'Input');
+            const sliderEl = document.getElementById(key + 'Slider');
+
+            if (inputEl) {
+                const step = inputEl.getAttribute('step');
+                if (step && step.includes('.')) {
+                    inputEl.value = numValue.toFixed(1);
+                } else {
+                    inputEl.value = Math.round(numValue);
+                }
+            }
+            if (sliderEl) {
+                sliderEl.value = numValue;
+            }
+
             if (key === 'resolution') {
-                if (numValue < 1) settings.resolution = 1;
-                document.getElementById('resolutionInput').value = settings.resolution;
-                document.getElementById('resolutionSlider').value = settings.resolution;
                 resizeCanvas();
-            } else if (key === 'frameRate') {
-                document.getElementById('fpsInput').value = numValue;
-                document.getElementById('fpsSlider').value = numValue;
             }
         },
         initialize() {
@@ -725,6 +761,8 @@
             document.getElementById('resolutionSlider').value = settings.resolution;
             document.getElementById('fpsInput').value = settings.frameRate;
             document.getElementById('fpsSlider').value = settings.frameRate;
+            document.getElementById('rainbowSpeedInput').value = settings.rainbowSpeed.toFixed(1);
+            document.getElementById('rainbowSpeedSlider').value = settings.rainbowSpeed;
             document.getElementById('colorPicker').value = `#${settings.cellColor.map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('')}`;
             document.getElementById('colorEffectSelect').value = settings.colorEffect;
         }
