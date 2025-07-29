@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conway's Game of Life - Immersive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0a0a0a;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            cursor: pointer;
+            touch-action: none;
+        }
+        .panel {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 10;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out, bottom 0.3s ease-in-out;
+            opacity: 1;
+            visibility: visible;
+        }
+        .panel.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+        .controls {
+            bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .settings-panel {
+            bottom: -100%; /* Start hidden */
+            width: clamp(300px, 90%, 500px);
+            display: grid;
+            gap: 1rem;
+            padding: 20px;
+        }
+        .settings-panel.visible {
+            bottom: 95px; /* Position above controls */
+        }
+        .btn {
+            background-color: rgba(31, 41, 55, 0.7);
+            color: #f3f4f6;
+            font-weight: 500;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .btn:hover {
+            background-color: rgba(55, 65, 81, 0.9);
+            transform: translateY(-2px);
+        }
+        .btn.active {
+            background-color: #0e7490;
+            color: white;
+        }
+        .form-group {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 10px;
+        }
+        .form-group label {
+            font-weight: 500;
+            color: #d1d5db;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(55, 65, 81, 0.8);
+            padding: 4px;
+            border-radius: 6px;
+        }
+        .input-group input[type="number"] {
+            width: 50px;
+            background: transparent;
+            border: none;
+            color: white;
+            text-align: center;
+            -moz-appearance: textfield;
+        }
+        .input-group input[type="number"]::-webkit-inner-spin-button { display: none; }
+        .input-group button {
+            width: 24px;
+            height: 24px;
+            background: #4b5563;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+            grid-column: span 2;
+        }
+        select {
+            background: rgba(55, 65, 81, 0.8);
+            color: white;
+            border: 1px solid #4b5563;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        /* UI FIX: Styles for the color picker */
+        input[type="color"] {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 36px;
+            background-color: transparent;
+            border: 1px solid #4b5563;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="settingsPanel" class="panel settings-panel">
+        <!-- Square Size -->
+        <div class="form-group">
+            <label for="resolutionInput">Square Size</label>
+            <div class="input-group">
+                <button data-for="resolutionInput" data-step="-1">-</button>
+                <input type="number" id="resolutionInput" data-key="resolution" min="1" max="30">
+                <button data-for="resolutionInput" data-step="1">+</button>
+            </div>
+            <input type="range" id="resolutionSlider" min="1" max="30">
+        </div>
+
+        <!-- Frame Rate -->
+        <div class="form-group">
+            <label for="fpsInput">Frame Rate</label>
+            <div class="input-group">
+                <button data-for="fpsInput" data-step="-1">-</button>
+                <input type="number" id="fpsInput" data-key="frameRate" min="1" max="60">
+                <button data-for="fpsInput" data-step="1">+</button>
+            </div>
+            <input type="range" id="fpsSlider" min="1" max="60">
+        </div>
+
+        <!-- Color -->
+        <div class="form-group">
+            <label for="colorPicker">Cell Color</label>
+            <input type="color" id="colorPicker">
+        </div>
+
+        <!-- Color Effect -->
+        <div class="form-group">
+            <label for="colorEffectSelect">Color Effect</label>
+            <select id="colorEffectSelect">
+                <option value="static">Static</option>
+                <option value="rainbow">Rainbow</option>
+                <option value="neighbors">Neighbor Count</option>
+                <option value="shapeSize">Shape Size</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="controlsPanel" class="panel controls">
+        <button id="startStopBtn" class="btn">Start</button>
+        <button id="stepBtn" class="btn">Step</button>
+        <button id="randomizeBtn" class="btn">Randomize</button>
+        <button id="resetBtn" class="btn">Reset</button>
+        <button id="settingsBtn" class="btn">Settings</button>
+        <button id="fullscreenBtn" class="btn">Fullscreen</button>
+        <button id="hideBtn" class="btn">Hide</button>
+    </div>
+
+    <script>
+        // DOM Elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startStopBtn = document.getElementById('startStopBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const randomizeBtn = document.getElementById('randomizeBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const hideBtn = document.getElementById('hideBtn');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const controlsPanel = document.getElementById('controlsPanel');
+
+        // Settings Inputs
+        const resolutionInput = document.getElementById('resolutionInput');
+        const resolutionSlider = document.getElementById('resolutionSlider');
+        const fpsInput = document.getElementById('fpsInput');
+        const fpsSlider = document.getElementById('fpsSlider');
+        const colorPicker = document.getElementById('colorPicker');
+        const colorEffectSelect = document.getElementById('colorEffectSelect');
+
+        // Game State
+        let cols, rows;
+        let liveCells = new Set();
+        let animationId;
+        let isRunning = false;
+        let isDrawing = false;
+        let uiVisible = true;
+
+        // Settings State
+        let settings = {
+            resolution: 3,
+            frameRate: 30,
+            cellColor: '#06b6d4',
+            colorEffect: 'shapeSize'
+        };
+
+        // --- Core Game Logic ---
+
+        function cellKey(col, row) {
+            return row * cols + col;
+        }
+
+        function fromCellKey(key) {
+            const row = Math.floor(key / cols);
+            const col = key % cols;
+            return [col, row];
+        }
+
+        function randomizeGrid() {
+            liveCells.clear();
+            for (let col = 0; col < cols; col++) {
+                for (let row = 0; row < rows; row++) {
+                    if (Math.random() > 0.8) {
+                        liveCells.add(cellKey(col, row));
+                    }
+                }
+            }
+            drawGrid();
+        }
+
+        function getNeighborCount(col, row) {
+            let numNeighbors = 0;
+            for (let i = -1; i < 2; i++) {
+                for (let j = -1; j < 2; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const x = (col + i + cols) % cols;
+                    const y = (row + j + rows) % rows;
+                    if (liveCells.has(cellKey(x, y))) {
+                        numNeighbors++;
+                    }
+                }
+            }
+            return numNeighbors;
+        }
+
+        function findShapes() {
+            const visited = new Set();
+            const shapeMap = new Map();
+
+            for (const key of liveCells) {
+                if (!visited.has(key)) {
+                    const shape = [];
+                    const stack = [key];
+                    visited.add(key);
+
+                    while (stack.length > 0) {
+                        const currentKey = stack.pop();
+                        shape.push(currentKey);
+
+                        const [c, r] = fromCellKey(currentKey);
+                        for (let i = -1; i < 2; i++) {
+                            for (let j = -1; j < 2; j++) {
+                                if (i === 0 && j === 0) continue;
+                                const nc = (c + i + cols) % cols;
+                                const nr = (r + j + rows) % rows;
+                                const neighborKey = cellKey(nc, nr);
+
+                                if (liveCells.has(neighborKey) && !visited.has(neighborKey)) {
+                                    visited.add(neighborKey);
+                                    stack.push(neighborKey);
+                                }
+                            }
+                        }
+                    }
+
+                    const shapeSize = shape.length;
+                    for (const shapeKey of shape) {
+                        shapeMap.set(shapeKey, shapeSize);
+                    }
+                }
+            }
+            return shapeMap;
+        }
+
+        function drawGrid() {
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const neighborColors = [
+                '#03045e', '#0077b6', '#06d6a0', '#ffd60a',
+                '#f95738', '#f15bb5', '#d90429', '#8f2d56', '#4a001e'
+            ];
+
+            let shapeMap;
+            if (settings.colorEffect === 'shapeSize' && liveCells.size > 0) {
+                shapeMap = findShapes();
+            }
+
+            for (const key of liveCells) {
+                const [col, row] = fromCellKey(key);
+                switch (settings.colorEffect) {
+                    case 'rainbow':
+                        ctx.fillStyle = `hsl(${(col + row) * 3 % 360}, 90%, 60%)`;
+                        break;
+                    case 'neighbors':
+                        const neighbors = getNeighborCount(col, row);
+                        ctx.fillStyle = neighborColors[neighbors] || '#ffffff';
+                        break;
+                    case 'shapeSize':
+                        const size = shapeMap.get(key) || 1;
+                        ctx.fillStyle = `hsl(${size * 20 % 360}, 85%, 60%)`;
+                        break;
+                    case 'static':
+                    default:
+                        ctx.fillStyle = settings.cellColor;
+                        break;
+                }
+                ctx.fillRect(col * settings.resolution, row * settings.resolution, settings.resolution, settings.resolution);
+            }
+        }
+
+        function nextGen() {
+            const nextLiveCells = new Set();
+            const neighborCounts = new Map();
+
+            for (const key of liveCells) {
+                const [col, row] = fromCellKey(key);
+                for (let i = -1; i < 2; i++) {
+                    for (let j = -1; j < 2; j++) {
+                        if (i === 0 && j === 0) continue;
+                        const x = (col + i + cols) % cols;
+                        const y = (row + j + rows) % rows;
+                        const neighborKey = cellKey(x, y);
+                        neighborCounts.set(neighborKey, (neighborCounts.get(neighborKey) || 0) + 1);
+                    }
+                }
+            }
+
+            for (const [key, count] of neighborCounts.entries()) {
+                const isAlive = liveCells.has(key);
+                if (count === 3 || (isAlive && count === 2)) {
+                    nextLiveCells.add(key);
+                }
+            }
+            liveCells = nextLiveCells;
+        }
+
+
+        function gameLoop() {
+            if (!isRunning) return;
+            nextGen();
+            drawGrid();
+            animationId = setTimeout(() => requestAnimationFrame(gameLoop), 1000 / settings.frameRate);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const newCols = Math.ceil(canvas.width / settings.resolution);
+            const newRows = Math.ceil(canvas.height / settings.resolution);
+
+            if (newCols !== cols || newRows !== rows) {
+                const oldCols = cols;
+                cols = newCols;
+                rows = newRows;
+
+                const oldCells = new Set(liveCells);
+                liveCells.clear();
+                if (oldCols) { // Check if oldCols is defined
+                    for(const oldKey of oldCells) {
+                        const row = Math.floor(oldKey / oldCols);
+                        const col = oldKey % oldCols;
+                        if(col < cols && row < rows) {
+                            liveCells.add(cellKey(col, row));
+                        }
+                    }
+                }
+            }
+            drawGrid();
+        }
+
+        function handleCanvasInteraction(event) {
+            if (!uiVisible) {
+                controlsPanel.classList.remove('hidden');
+                uiVisible = true;
+                return;
+            }
+            isDrawing = true;
+            toggleCell(event);
+        }
+
+        function toggleCell(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (event.clientX || event.touches[0].clientX) - rect.left;
+            const y = (event.clientY || event.touches[0].clientY) - rect.top;
+            const col = Math.floor(x / settings.resolution);
+            const row = Math.floor(y / settings.resolution);
+            if (col >= 0 && col < cols && row >= 0 && row < rows) {
+                const key = cellKey(col, row);
+                if (liveCells.has(key)) {
+                    liveCells.delete(key);
+                } else {
+                    liveCells.add(key);
+                }
+                drawGrid();
+            }
+        }
+
+        // --- Event Listeners ---
+
+        function setupEventListeners() {
+            startStopBtn.addEventListener('click', () => {
+                isRunning = !isRunning;
+                startStopBtn.textContent = isRunning ? 'Stop' : 'Start';
+                startStopBtn.classList.toggle('active', isRunning);
+                if (isRunning) gameLoop(); else clearTimeout(animationId);
+            });
+
+            resetBtn.addEventListener('click', () => {
+                liveCells.clear();
+                drawGrid();
+                if (isRunning) {
+                    isRunning = false;
+                    startStopBtn.textContent = 'Start';
+                    startStopBtn.classList.remove('active');
+                    clearTimeout(animationId);
+                }
+            });
+
+            stepBtn.addEventListener('click', () => {
+                if (!isRunning) {
+                    nextGen();
+                    drawGrid();
+                }
+            });
+            randomizeBtn.addEventListener('click', randomizeGrid);
+            settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('visible'));
+            hideBtn.addEventListener('click', () => {
+                controlsPanel.classList.add('hidden');
+                settingsPanel.classList.remove('visible');
+                uiVisible = false;
+            });
+            fullscreenBtn.addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => console.error(err));
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+
+            // Drawing listeners
+            canvas.addEventListener('mousedown', handleCanvasInteraction);
+            canvas.addEventListener('mousemove', e => {
+                if(isDrawing && uiVisible) toggleCell(e);
+            });
+            canvas.addEventListener('mouseup', () => isDrawing = false);
+            canvas.addEventListener('mouseleave', () => isDrawing = false);
+            canvas.addEventListener('touchstart', e => { e.preventDefault(); handleCanvasInteraction(e); }, { passive: false });
+            canvas.addEventListener('touchmove', e => { e.preventDefault(); if (isDrawing && uiVisible) toggleCell(e); }, { passive: false });
+            canvas.addEventListener('touchend', () => isDrawing = false);
+
+            // Settings listeners
+            resolutionInput.addEventListener('change', e => updateSetting('resolution', e.target.value));
+            resolutionSlider.addEventListener('input', e => updateSetting('resolution', e.target.value));
+            fpsInput.addEventListener('change', e => updateSetting('frameRate', e.target.value));
+            fpsSlider.addEventListener('input', e => updateSetting('frameRate', e.target.value));
+
+            document.querySelectorAll('.input-group button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const input = document.getElementById(btn.dataset.for);
+                    let value = parseInt(input.value) + parseInt(btn.dataset.step);
+                    if (value < parseInt(input.min)) value = parseInt(input.min);
+                    if (value > parseInt(input.max)) value = parseInt(input.max);
+                    updateSetting(input.dataset.key, value);
+                });
+            });
+        }
+
+        // --- Settings Logic ---
+        function updateSetting(key, value) {
+            const numValue = parseInt(value);
+            if (isNaN(numValue)) return;
+
+            settings[key] = numValue;
+            if (key === 'resolution') {
+                if(numValue < 1) settings.resolution = 1;
+                resolutionInput.value = settings.resolution;
+                resolutionSlider.value = settings.resolution;
+                resizeCanvas();
+            } else if (key === 'frameRate') {
+                fpsInput.value = numValue;
+                fpsSlider.value = numValue;
+            }
+        }
+
+        colorPicker.addEventListener('input', e => {
+            settings.cellColor = e.target.value;
+            drawGrid();
+        });
+
+        colorEffectSelect.addEventListener('change', e => {
+            settings.colorEffect = e.target.value;
+            drawGrid();
+        });
+
+
+        function initializeSettings() {
+            resolutionInput.value = settings.resolution;
+            resolutionSlider.value = settings.resolution;
+            fpsInput.value = settings.frameRate;
+            fpsSlider.value = settings.frameRate;
+            colorPicker.value = settings.cellColor;
+            colorEffectSelect.value = settings.colorEffect;
+        }
+
+        // --- Initialization ---
+        window.addEventListener('load', () => {
+            initializeSettings();
+            setupEventListeners();
+            resizeCanvas();
+            randomizeGrid();
+        });
+        window.addEventListener('resize', resizeCanvas);
+    </script>
+</body>
+</html>
