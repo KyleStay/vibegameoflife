@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conway's Game of Life - GPU Accelerated</title>
+    <title>Conway's Game of Life - Web Worker Accelerated</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -192,9 +192,9 @@
         <button id="randomizeBtn" class="btn">Randomize</button>
         <button id="resetBtn" class="btn">Reset</button>
         <button id="settingsBtn" class="btn">Settings</button>
+        <button id="killModeBtn" class="btn">Kill</button>
         <button id="fullscreenBtn" class="btn">Fullscreen</button>
         <button id="hideBtn" class="btn">Hide</button>
-        <button id="copyLogsBtn" class="btn">Copy Logs</button>
     </div>
 
 <script id="vertex-shader" type="x-shader/x-vertex">
@@ -237,87 +237,17 @@
     }
 </script>
 
-<script>
-    const DEBUG = false; // Logging can be disabled now that it's stable.
-    let logHistory = [];
-    const canvas = document.getElementById('gameCanvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    let renderProgram;
-    let positionBuffer, colorBuffer;
-    let cols = 0, rows = 0;
-    let animationId;
-    let isRunning = false, isDrawing = false, uiVisible = true;
-    let liveCells = new Map(); // Using Map to store { key: age }
-    let time = 0; // Time variable for dynamic effects
+<script id="worker-script" type="javascript/worker">
+    // --- Web Worker Logic ---
 
-    let settings = {
-        resolution: 3,
-        frameRate: 30,
-        cellColor: [6/255, 182/255, 212/255],
-        colorEffect: 4
-    };
-
-    function log(message, ...args) {
-        if (DEBUG) {
-            const logMessage = `[GOL-DEBUG] ${new Date().toISOString()} | ${message}`;
-            console.log(logMessage, ...args);
-            const argString = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
-            logHistory.push(`${logMessage} ${argString}`);
-        }
-    }
-
-    function createShader(gl, type, source) {
-        const shader = gl.createShader(type);
-        gl.shaderSource(shader, source);
-        gl.compileShader(shader);
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-            log('Shader compilation error: ' + gl.getShaderInfoLog(shader));
-            gl.deleteShader(shader);
-            return null;
-        }
-        return shader;
-    }
-
-    function createProgram(gl, vertexShader, fragmentShader) {
-        const program = gl.createProgram();
-        gl.attachShader(program, vertexShader);
-        gl.attachShader(program, fragmentShader);
-        gl.linkProgram(program);
-        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-            log('Shader program link error: ' + gl.getProgramInfoLog(program));
-            return null;
-        }
-        return program;
-    }
-
-    function setupWebGL() {
-        if (!gl) {
-            alert('WebGL is not supported by your browser.');
-            console.error('WebGL not supported!');
-            return false;
-        }
-        log('WebGL context obtained.');
-
-        const vertexShaderSource = document.getElementById('vertex-shader').textContent;
-        const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
-
-        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-
-        renderProgram = createProgram(gl, vertexShader, fragmentShader);
-        log('Shader program created.');
-
-        positionBuffer = gl.createBuffer();
-        colorBuffer = gl.createBuffer();
-        log('Attribute buffers created.');
-        return true;
-    }
-
-    // --- CPU Logic ---
+    // These functions are duplicated in the worker for self-containment.
     function cellKey(col, row) { return `${col},${row}`; }
     function fromCellKey(key) { return key.split(',').map(Number); }
 
-    function nextGen() {
+    onmessage = function(e) {
+        const { liveCellsArray, cols, rows } = e.data;
+        const liveCells = new Map(liveCellsArray);
+
         const nextLiveCells = new Map();
         const neighborCounts = new Map();
 
@@ -341,10 +271,99 @@
                 nextLiveCells.set(key, newAge);
             }
         }
-        liveCells = nextLiveCells;
+
+        // Convert Map back to array for transferring back to the main thread.
+        postMessage(Array.from(nextLiveCells.entries()));
+    };
+</script>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    let renderProgram;
+    let positionBuffer, colorBuffer;
+    let cols = 0, rows = 0;
+    let animationId;
+    let isRunning = false, isDrawing = false, uiVisible = true, isKillMode = false;
+    let liveCells = new Map();
+    let time = 0;
+    let worker;
+    let isCalculating = false;
+
+    let settings = {
+        resolution: 3,
+        frameRate: 30,
+        cellColor: [6/255, 182/255, 212/255],
+        colorEffect: 4
+    };
+
+    function createShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader compilation error: ' + gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
     }
 
-    // --- Rendering ---
+    function createProgram(gl, vertexShader, fragmentShader) {
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Shader program link error: ' + gl.getProgramInfoLog(program));
+            return null;
+        }
+        return program;
+    }
+
+    function setupWebGL() {
+        if (!gl) {
+            alert('WebGL is not supported by your browser.');
+            return false;
+        }
+
+        const vertexShaderSource = document.getElementById('vertex-shader').textContent;
+        const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        renderProgram = createProgram(gl, vertexShader, fragmentShader);
+
+        positionBuffer = gl.createBuffer();
+        colorBuffer = gl.createBuffer();
+        return true;
+    }
+
+    function setupWorker() {
+        const workerCode = document.getElementById('worker-script').textContent;
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        worker = new Worker(URL.createObjectURL(blob));
+
+        worker.onmessage = function(e) {
+            liveCells = new Map(e.data);
+            isCalculating = false;
+            if (isRunning) {
+                render();
+                animationId = setTimeout(gameLoop, 1000 / settings.frameRate);
+            }
+        };
+    }
+
+    function cellKey(col, row) { return `${col},${row}`; }
+    function fromCellKey(key) { return key.split(',').map(Number); }
+
+    function nextGen() {
+        if (isCalculating) return;
+        isCalculating = true;
+        worker.postMessage({ liveCellsArray: Array.from(liveCells.entries()), cols, rows });
+    }
+
     function render() {
         gl.clearColor(0.04, 0.04, 0.04, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -415,15 +434,12 @@
         gl.uniform1f(pointSizeLoc, settings.resolution);
 
         gl.drawArrays(gl.POINTS, 0, liveCells.size);
-        log('Render complete.', { cellCount: liveCells.size });
     }
 
     function gameLoop() {
         if (!isRunning) return;
-        time += 0.02; // Increment time for dynamic effects
-        nextGen();
-        render();
-        animationId = setTimeout(() => requestAnimationFrame(gameLoop), 1000 / settings.frameRate);
+        time += 0.02;
+        nextGen(); // This will trigger the worker
     }
 
     function resizeCanvas() {
@@ -434,12 +450,10 @@
 
         cols = Math.ceil(canvas.width / settings.resolution);
         rows = Math.ceil(canvas.height / settings.resolution);
-        log(`Resizing grid to ${cols}x${rows}`);
         randomizeGrid();
     }
 
     function randomizeGrid() {
-        log('Randomizing grid...');
         liveCells.clear();
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -452,12 +466,11 @@
     }
 
     function resetGrid() {
-        log('Resetting grid.');
         liveCells.clear();
         render();
     }
 
-    function toggleCell(event) {
+    function modifyCells(event) {
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
         const x = (event.clientX - rect.left) * dpr;
@@ -466,18 +479,29 @@
         const col = Math.floor(x / settings.resolution);
         const row = Math.floor(y / settings.resolution);
 
-        if (col >= 0 && col < cols && row >= 0 && row < rows) {
-            const key = cellKey(col, row);
-            if (liveCells.has(key)) {
-                liveCells.delete(key);
-            } else {
-                liveCells.set(key, 1);
+        if (isKillMode) {
+            const radius = 2; // 5x5 area
+            for (let i = -radius; i <= radius; i++) {
+                for (let j = -radius; j <= radius; j++) {
+                    if (i*i + j*j <= radius*radius) { // circular brush
+                        const key = cellKey((col + i + cols) % cols, (row + j + rows) % rows);
+                        liveCells.delete(key);
+                    }
+                }
             }
-            render();
+        } else {
+            if (col >= 0 && col < cols && row >= 0 && row < rows) {
+                const key = cellKey(col, row);
+                if (liveCells.has(key)) {
+                    liveCells.delete(key);
+                } else {
+                    liveCells.set(key, 1);
+                }
+            }
         }
+        render();
     }
 
-    // --- Color & Shape Helpers ---
     function findShapes() {
         const visited = new Set();
         const shapeMap = new Map();
@@ -557,17 +581,17 @@
     const ui = {
         init() {
             document.getElementById('startStopBtn').addEventListener('click', ui.toggleRun);
-            document.getElementById('stepBtn').addEventListener('click', () => { if(!isRunning) { nextGen(); render(); }});
+            document.getElementById('stepBtn').addEventListener('click', () => { if(!isRunning) { nextGen(); }});
             document.getElementById('randomizeBtn').addEventListener('click', () => { randomizeGrid(); });
             document.getElementById('resetBtn').addEventListener('click', () => { resetGrid(); });
             document.getElementById('settingsBtn').addEventListener('click', ui.toggleSettings);
+            document.getElementById('killModeBtn').addEventListener('click', ui.toggleKillMode);
             document.getElementById('closeSettingsBtn').addEventListener('click', ui.toggleSettings);
             document.getElementById('hideBtn').addEventListener('click', ui.hide);
             document.getElementById('fullscreenBtn').addEventListener('click', ui.toggleFullscreen);
-            document.getElementById('copyLogsBtn').addEventListener('click', ui.copyLogs);
 
-            canvas.addEventListener('mousedown', ui.handleCanvasInteraction);
-            canvas.addEventListener('mousemove', e => { if(isDrawing && uiVisible) toggleCell(e); });
+            canvas.addEventListener('mousedown', ui.handleMouseDown);
+            canvas.addEventListener('mousemove', ui.handleMouseMove);
             canvas.addEventListener('mouseup', () => isDrawing = false);
             canvas.addEventListener('mouseleave', () => isDrawing = false);
 
@@ -600,7 +624,7 @@
             if (isVisible) {
                 ui.updateSettingsPanelPosition();
             } else {
-                panel.style.bottom = ''; // Let CSS handle hiding
+                panel.style.bottom = '';
             }
         },
         updateSettingsPanelPosition() {
@@ -608,7 +632,7 @@
             const settingsPanel = document.getElementById('settingsPanel');
             if (controlsPanel && settingsPanel) {
                 const controlsHeight = controlsPanel.offsetHeight;
-                const bottomOffset = controlsHeight + 20 + 10; // 20px for controls' bottom, 10px for gap
+                const bottomOffset = controlsHeight + 20 + 10;
                 settingsPanel.style.bottom = `${bottomOffset}px`;
             }
         },
@@ -617,6 +641,10 @@
             document.getElementById('startStopBtn').textContent = isRunning ? 'Stop' : 'Start';
             document.getElementById('startStopBtn').classList.toggle('active', isRunning);
             if (isRunning) gameLoop(); else clearTimeout(animationId);
+        },
+        toggleKillMode() {
+            isKillMode = !isKillMode;
+            document.getElementById('killModeBtn').classList.toggle('active', isKillMode);
         },
         hide() {
             document.getElementById('controlsPanel').classList.add('hidden');
@@ -627,14 +655,19 @@
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
             else document.exitFullscreen();
         },
-        handleCanvasInteraction(e) {
+        handleMouseDown(e) {
             if (!uiVisible) {
                 document.getElementById('controlsPanel').classList.remove('hidden');
                 uiVisible = true;
                 return;
             }
             isDrawing = true;
-            toggleCell(e);
+            modifyCells(e);
+        },
+        handleMouseMove(e) {
+            if (isDrawing && uiVisible) {
+                modifyCells(e);
+            }
         },
         updateSetting(key, value) {
             const numValue = parseInt(value);
@@ -657,29 +690,11 @@
             document.getElementById('fpsSlider').value = settings.frameRate;
             document.getElementById('colorPicker').value = `#${settings.cellColor.map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('')}`;
             document.getElementById('colorEffectSelect').value = settings.colorEffect;
-        },
-        copyLogs() {
-            const logText = logHistory.join('\n');
-            const textArea = document.createElement('textarea');
-            textArea.style.position = 'fixed';
-            textArea.style.top = '-9999px';
-            textArea.value = logText;
-            document.body.appendChild(textArea);
-            textArea.select();
-            try {
-                document.execCommand('copy');
-                const btn = document.getElementById('copyLogsBtn');
-                btn.textContent = 'Copied!';
-                setTimeout(() => { btn.textContent = 'Copy Logs'; }, 2000);
-            } catch (err) {
-                console.error('Failed to copy logs: ', err);
-                alert('Failed to copy logs. See console for details.');
-            }
-            document.body.removeChild(textArea);
         }
     };
 
     window.addEventListener('load', () => {
+        setupWorker();
         if (setupWebGL()) {
             ui.initialize();
             ui.init();
