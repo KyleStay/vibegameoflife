@@ -66,22 +66,18 @@
             opacity: 1;
             visibility: visible;
         }
-        .btn, .select-btn-container {
+        .btn {
             background-color: rgba(31, 41, 55, 0.7);
             color: #f3f4f6;
             font-weight: 500;
+            padding: 10px 20px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
             transition: all 0.2s ease;
             white-space: nowrap;
-            position: relative;
         }
-        .select-btn {
-            padding: 10px 20px;
-            padding-right: 3rem; /* Space for the arrow */
-        }
-        .btn:hover, .select-btn-container:hover {
+        .btn:hover {
             background-color: rgba(55, 65, 81, 0.9);
             transform: translateY(-2px);
         }
@@ -131,14 +127,10 @@
             width: 100%;
             grid-column: span 2;
         }
-        select {
+        select.btn {
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            background: transparent;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
         }
         input[type="color"] {
             -webkit-appearance: none;
@@ -193,6 +185,34 @@
          #miniStartStopBtn.active {
              background-color: #0e7490;
         }
+        /* Docs Panel Styles */
+        #docsPanel {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: clamp(320px, 90vw, 900px);
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 20;
+            padding: 2rem;
+        }
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+        .rule-card {
+            background-color: rgba(31, 41, 55, 0.5);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .mini-canvas {
+            width: 100%;
+            aspect-ratio: 1;
+            background-color: #0a0a0a;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -235,8 +255,8 @@
         </div>
         <div class="form-group">
             <label for="colorEffectSelect">Color Effect</label>
-            <div class="select-btn-container">
-                <select id="colorEffectSelect" class="select-btn pr-8">
+            <div class="relative">
+                <select id="colorEffectSelect" class="btn pr-10">
                     <option value="0">Static</option>
                     <option value="1">Rainbow</option>
                     <option value="2">Neighbor Count</option>
@@ -250,11 +270,75 @@
         </div>
     </div>
 
+    <div id="docsPanel" class="panel hidden text-gray-200">
+        <button id="closeDocsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-3 py-1 rounded">&times;</button>
+        <h2 class="text-3xl font-bold text-cyan-400 mb-4 text-center">The Rules of Life</h2>
+        <p class="mb-8 text-center text-gray-400">The simulation evolves based on four simple rules applied to each cell simultaneously in every generation. The yellow cell is the one being evaluated.</p>
+        <div class="docs-grid">
+            <div class="rule-card">
+                <h3 class="font-bold text-lg text-white mb-2">1. Underpopulation</h3>
+                <p class="text-sm text-gray-400 mb-4">A living cell with **zero or one** live neighbours dies from loneliness.</p>
+                <div class="flex gap-4">
+                    <div>
+                        <canvas class="mini-canvas" id="rule1a-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="0">Replay (1 Neighbor)</button>
+                    </div>
+                    <div>
+                        <canvas class="mini-canvas" id="rule1b-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="1">Replay (0 Neighbors)</button>
+                    </div>
+                </div>
+            </div>
+            <div class="rule-card">
+                <h3 class="font-bold text-lg text-white mb-2">2. Survival</h3>
+                <p class="text-sm text-gray-400 mb-4">A living cell with **two or three** live neighbours survives to the next generation.</p>
+                 <div class="flex gap-4">
+                    <div>
+                        <canvas class="mini-canvas" id="rule2a-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="2">Replay (2 Neighbors)</button>
+                    </div>
+                    <div>
+                        <canvas class="mini-canvas" id="rule2b-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="3">Replay (3 Neighbors)</button>
+                    </div>
+                </div>
+            </div>
+            <div class="rule-card">
+                <h3 class="font-bold text-lg text-white mb-2">3. Overpopulation</h3>
+                <p class="text-sm text-gray-400 mb-4">A living cell with **more than three** live neighbours dies, as if by overcrowding.</p>
+                 <div class="flex gap-4">
+                    <div>
+                        <canvas class="mini-canvas" id="rule3a-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="4">Replay (4 Neighbors)</button>
+                    </div>
+                    <div>
+                        <canvas class="mini-canvas" id="rule3b-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="5">Replay (5 Neighbors)</button>
+                    </div>
+                </div>
+            </div>
+            <div class="rule-card">
+                <h3 class="font-bold text-lg text-white mb-2">4. Reproduction</h3>
+                <p class="text-sm text-gray-400 mb-4">A dead cell with **exactly three** live neighbours becomes a live cell.</p>
+                 <div class="flex gap-4">
+                    <div>
+                        <canvas class="mini-canvas" id="rule4a-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="6">Replay (Example 1)</button>
+                    </div>
+                    <div>
+                        <canvas class="mini-canvas" id="rule4b-canvas"></canvas>
+                        <button class="btn w-full replay-btn" data-sim="7">Replay (Example 2)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="controlsPanel" class="panel controls">
         <button id="startStopBtn" class="btn">Start</button>
         <button id="stepBtn" class="btn">Step</button>
-        <div class="select-btn-container">
-            <select id="seedSelect" class="select-btn pr-8">
+        <div class="relative btn hover:transform-none">
+            <select id="seedSelect" class="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer">
                 <option value="random">Random</option>
                 <optgroup label="Still Lifes">
                     <option value="block">Block</option>
@@ -293,6 +377,7 @@
                     <option value="max">Max</option>
                 </optgroup>
             </select>
+            <span id="seedSelectLabel">Random</span>
             <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
                 <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
             </div>
@@ -300,6 +385,7 @@
         <button id="resetBtn" class="btn">Reset</button>
         <button id="settingsBtn" class="btn">Settings</button>
         <button id="killModeBtn" class="btn">Kill</button>
+        <button id="docsBtn" class="btn">Rules</button>
         <button id="fullscreenBtn" class="btn">Fullscreen</button>
         <button id="hideBtn" class="btn">Hide</button>
     </div>
@@ -415,6 +501,7 @@
     let time = 0;
     let worker;
     let isCalculating = false;
+    let miniSims = [];
 
     let settings = {
         resolution: 3,
@@ -760,7 +847,11 @@
         init() {
             document.getElementById('startStopBtn').addEventListener('click', ui.toggleRun);
             document.getElementById('stepBtn').addEventListener('click', () => { if(!isRunning) { nextGen(); }});
-            document.getElementById('seedSelect').addEventListener('change', (e) => loadSeed(e.target.value));
+            document.getElementById('seedSelect').addEventListener('change', (e) => {
+                loadSeed(e.target.value);
+                const label = document.getElementById('seedSelectLabel');
+                label.textContent = e.target.options[e.target.selectedIndex].text;
+            });
             document.getElementById('resetBtn').addEventListener('click', () => { resetGrid(); });
             document.getElementById('settingsBtn').addEventListener('click', ui.toggleSettings);
             document.getElementById('killModeBtn').addEventListener('click', ui.toggleKillMode);
@@ -771,6 +862,8 @@
             document.getElementById('miniStartStopBtn').addEventListener('click', ui.toggleRun);
             document.getElementById('miniKillModeBtn').addEventListener('click', ui.toggleKillMode);
             document.getElementById('hideAllBtn').addEventListener('click', ui.hideAll);
+            document.getElementById('docsBtn').addEventListener('click', ui.toggleDocs);
+            document.getElementById('closeDocsBtn').addEventListener('click', ui.toggleDocs);
 
             canvas.addEventListener('mousedown', ui.handleMouseDown);
             canvas.addEventListener('mousemove', ui.handleMouseMove);
@@ -814,6 +907,12 @@
                     ui.updateSetting(input.dataset.key, value);
                 });
             });
+            document.querySelectorAll('.replay-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const simIndex = parseInt(e.target.dataset.sim);
+                    miniSims[simIndex].resetAndRun();
+                });
+            });
         },
         toggleSettings() {
             const panel = document.getElementById('settingsPanel');
@@ -823,6 +922,10 @@
             } else {
                 panel.style.bottom = '';
             }
+        },
+        toggleDocs() {
+            document.getElementById('docsPanel').classList.toggle('hidden');
+            miniSims.forEach(sim => sim.resetAndRun());
         },
         updateSettingsPanelPosition() {
             const controlsPanel = document.getElementById('controlsPanel');
@@ -936,12 +1039,91 @@
         }
     };
 
+    // --- Mini Sim Class for Docs ---
+    class MiniSim {
+        constructor(canvasId, initialPattern) {
+            this.canvas = document.getElementById(canvasId);
+            this.ctx = this.canvas.getContext('2d');
+            this.initialPattern = initialPattern;
+            this.grid = [];
+            this.cols = 5;
+            this.rows = 5;
+            this.resolution = this.canvas.width / this.cols;
+            this.reset();
+        }
+
+        reset() {
+            this.grid = new Array(this.cols).fill(null).map(() => new Array(this.rows).fill(0));
+            for (const [x, y] of this.initialPattern) {
+                this.grid[x][y] = 1;
+            }
+            this.draw();
+        }
+
+        nextGen() {
+            const nextGrid = new Array(this.cols).fill(null).map(() => new Array(this.rows).fill(0));
+            for (let col = 0; col < this.cols; col++) {
+                for (let row = 0; row < this.rows; row++) {
+                    const cell = this.grid[col][row];
+                    let numNeighbors = 0;
+                    for (let i = -1; i < 2; i++) {
+                        for (let j = -1; j < 2; j++) {
+                            if (i === 0 && j === 0) continue;
+                            const x_cell = col + i;
+                            const y_cell = row + j;
+                            if (x_cell >= 0 && y_cell >= 0 && x_cell < this.cols && y_cell < this.rows) {
+                                numNeighbors += this.grid[x_cell][y_cell];
+                            }
+                        }
+                    }
+                    if (cell === 1 && numNeighbors < 2) nextGrid[col][row] = 0;
+                    else if (cell === 1 && numNeighbors > 3) nextGrid[col][row] = 0;
+                    else if (cell === 0 && numNeighbors === 3) nextGrid[col][row] = 1;
+                    else nextGrid[col][row] = cell;
+                }
+            }
+            this.grid = nextGrid;
+            this.draw();
+        }
+
+        draw() {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            for (let col = 0; col < this.cols; col++) {
+                for (let row = 0; row < this.rows; row++) {
+                    this.ctx.beginPath();
+                    this.ctx.rect(col * this.resolution, row * this.resolution, this.resolution, this.resolution);
+                    if (this.grid[col][row]) {
+                         this.ctx.fillStyle = (col === 2 && row === 2) ? '#ffd60a' : '#06d6a0';
+                    } else {
+                         this.ctx.fillStyle = (col === 2 && row === 2) ? '#4b5563' : '#1f2937';
+                    }
+                    this.ctx.fill();
+                }
+            }
+        }
+
+        resetAndRun() {
+            this.reset();
+            setTimeout(() => this.nextGen(), 500);
+        }
+    }
+
     window.addEventListener('load', () => {
         setupWorker();
         if (setupWebGL()) {
             ui.initialize();
             ui.init();
             resizeCanvas();
+
+            // Initialize mini-sims
+            miniSims.push(new MiniSim('rule1a-canvas', [[2,1],[2,2]]));
+            miniSims.push(new MiniSim('rule1b-canvas', [[2,2]]));
+            miniSims.push(new MiniSim('rule2a-canvas', [[1,1],[2,1],[2,2]]));
+            miniSims.push(new MiniSim('rule2b-canvas', [[1,1],[2,1],[1,2],[2,2]]));
+            miniSims.push(new MiniSim('rule3a-canvas', [[1,1],[2,1],[3,1],[2,2],[1,2]]));
+            miniSims.push(new MiniSim('rule3b-canvas', [[1,1],[2,1],[3,1],[1,2],[3,2],[2,2]]));
+            miniSims.push(new MiniSim('rule4a-canvas', [[1,1],[2,1],[3,1]]));
+            miniSims.push(new MiniSim('rule4b-canvas', [[1,2],[3,2],[2,1]]));
         }
     });
     window.addEventListener('resize', () => {
