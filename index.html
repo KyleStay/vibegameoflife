@@ -489,8 +489,9 @@
     let lastCellPosition = null;
     let cursorPositions = [];
 
+    const isHighDPI = window.devicePixelRatio > 1;
     let settings = {
-        resolution: 3,
+        resolution: isHighDPI ? 6 : 3,
         frameRate: 60,
         rainbowSpeed: 1.0,
         cellColor: [6/255, 182/255, 212/255],
