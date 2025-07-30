@@ -266,6 +266,13 @@
                         <option value="10">Local Density</option>
                         <option value="11">Shape Velocity</option>
                         <option value="12">Generational Diversity</option>
+                        <option value="13">Stability</option>
+                        <option value="14">Growth Rate</option>
+                        <option value="15">Neighborhood Chaos</option>
+                        <option value="16">Proximity</option>
+                        <option value="17">Collision Flash</option>
+                        <option value="18">Ghosting</option>
+                        <option value="19">Fertility</option>
                     </select>
                     <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400"><svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div>
                 </div>
@@ -423,10 +430,14 @@
     let isRunning = false, isDrawing = false, isKillMode = false;
     let uiState = 'full'; // 'full', 'mini', 'hidden'
     let liveCells = new Map();
+    let previousLiveCells = new Map();
     let time = 0;
     let worker;
     let isCalculating = false;
     let previousShapes = new Map();
+    let collisionCells = new Map();
+    let ghostCells = new Map();
+    let fertilityMap = new Map();
 
     let settings = {
         resolution: 3,
@@ -513,6 +524,7 @@
         worker = new Worker(URL.createObjectURL(blob));
 
         worker.onmessage = function(e) {
+            previousLiveCells = new Map(liveCells);
             liveCells = new Map(e.data);
             isCalculating = false;
 
@@ -549,29 +561,32 @@
         gl.clearColor(...bgColor);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        if (liveCells.size === 0) return;
-
-        const positions = new Float32Array(liveCells.size * 2);
-        const colors = new Float32Array(liveCells.size * 3);
-        let i = 0;
-
-        let metricMap;
-        switch (settings.colorEffect) {
-            case 4:
-            case 11:
-            case 12:
-                metricMap = analyzeComplexMetrics();
-                break;
-            case 10:
-                metricMap = calculateLocalDensityMap();
-                break;
-            default:
-                metricMap = new Map();
-                break;
+        // Update historical data for special themes
+        updateGhostCells();
+        if (settings.colorEffect === 19) {
+            updateFertilityMap();
         }
 
 
-        for (const [key, age] of liveCells.entries()) {
+        const allCells = [...liveCells.entries()];
+        const allGhosts = settings.colorEffect === 18 ? [...ghostCells.entries()] : [];
+        const totalPoints = allCells.length + allGhosts.length;
+
+        if (totalPoints === 0) return;
+
+        const positions = new Float32Array(totalPoints * 2);
+        const colors = new Float32Array(totalPoints * 3);
+        let i = 0;
+
+        let metricMap;
+        if (settings.colorEffect >= 4 && settings.colorEffect <= 17) {
+            metricMap = analyzeMetrics();
+        } else {
+            metricMap = new Map();
+        }
+
+        // Render live cells
+        for (const [key, age] of allCells) {
             const [col, row] = fromCellKey(key);
 
             positions[i * 2] = col * settings.resolution;
@@ -593,7 +608,7 @@
                     [r, g, b] = hslToRgb(0.55 - normalizedAge, 0.9, 0.6);
                     break;
                 case 4: // Shape Size
-                    [r, g, b] = hslToRgb((metricMap.get(key) || 1) * 0.05 % 1.0, 0.85, 0.6);
+                    [r, g, b] = hslToRgb((metricMap.get(key)?.size || 1) * 0.05 % 1.0, 0.85, 0.6);
                     break;
                 case 5: // Synthwave
                     [r, g, b] = lerpColor([1, 0, 1], [0, 1, 1], normalizedAge);
@@ -612,19 +627,54 @@
                     [r, g, b] = [0, 0, 0];
                     break;
                 case 10: // Local Density
-                    const density = metricMap.get(key) || 0;
-                    const normDensity = Math.min(density / 50, 1.0); // Normalize based on expected max density
-                    [r, g, b] = hslToRgb(0.6 - normDensity * 0.6, 0.9, 0.6); // Blue to Red
+                    const density = metricMap.get(key)?.density || 0;
+                    const normDensity = Math.min(density / 50, 1.0);
+                    [r, g, b] = hslToRgb(0.6 - normDensity * 0.6, 0.9, 0.6);
                     break;
                 case 11: // Shape Velocity
-                    const speed = metricMap.get(key) || 0;
-                    const normSpeed = Math.min(speed / 2.0, 1.0); // Normalize based on expected max speed
-                    [r, g, b] = hslToRgb(0.6 - normSpeed * 0.6, 0.9, 0.6); // Blue (slow) to Red (fast)
+                    const speed = metricMap.get(key)?.velocity || 0;
+                    const normSpeed = Math.min(speed / 2.0, 1.0);
+                    [r, g, b] = hslToRgb(0.6 - normSpeed * 0.6, 0.9, 0.6);
                     break;
                 case 12: // Generational Diversity
-                    const diversity = metricMap.get(key) || 0;
-                    const normDiversity = Math.min(diversity / 100, 1.0); // Normalize
-                    [r, g, b] = lerpColor([1, 1, 1], [0.5, 0, 1], normDiversity); // White to Purple
+                    const diversity = metricMap.get(key)?.diversity || 0;
+                    const normDiversity = Math.min(diversity / 100, 1.0);
+                    [r, g, b] = lerpColor([1, 1, 1], [0.5, 0, 1], normDiversity);
+                    break;
+                case 13: // Stability
+                    const stability = metricMap.get(key)?.stability || 0; // 0: chaotic, 1: oscillator, 2: stable
+                    if (stability === 2) [r, g, b] = [0.2, 0.4, 1.0]; // Cool blue
+                    else if (stability === 1) [r, g, b] = [0.2, 0.8, 1.0]; // Cyan
+                    else [r, g, b] = [1.0, 0.8, 0.2]; // Yellow
+                    break;
+                case 14: // Growth Rate
+                    const rate = metricMap.get(key)?.growthRate || 0; // -1 to 1
+                    if (rate > 0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [0, 1, 0], rate * 10); // Gray to Green
+                    else if (rate < -0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [1, 0, 0], Math.abs(rate) * 10); // Gray to Red
+                    else [r, g, b] = [0.5, 0.5, 0.5]; // Gray
+                    break;
+                case 15: // Neighborhood Chaos
+                    const chaos = metricMap.get(key)?.chaos || 0;
+                    const normChaos = Math.min(chaos / 8, 1.0); // Max 8 neighbors can flip
+                    [r, g, b] = hslToRgb(0.6 - normChaos * 0.6, 1.0, 0.55); // Blue (calm) to Red (chaotic)
+                    break;
+                case 16: // Proximity
+                    const dist = metricMap.get(key)?.proximity || 0;
+                    const normDist = Math.min(dist / 15, 1.0); // Max search distance
+                    [r, g, b] = hslToRgb(0.3 + normDist * 0.4, 0.9, 0.6); // Green to Purple
+                    break;
+                case 17: // Collision Flash
+                    const flashTTL = collisionCells.get(key);
+                    if (flashTTL) {
+                        const flashAmt = flashTTL / 4.0;
+                        [r, g, b] = [flashAmt, flashAmt, flashAmt];
+                    } else {
+                        [r, g, b] = settings.cellColor;
+                    }
+                    break;
+                case 19: // Fertility
+                    const fertility = fertilityMap.get(key) || 0;
+                    [r, g, b] = lerpColor([0.2, 0.2, 0.8], [1, 1, 0.2], Math.min(fertility / 3, 1.0)); // Blue to Yellow
                     break;
                 default: // Static
                     [r, g, b] = settings.cellColor;
@@ -633,6 +683,18 @@
             colors[i * 3] = r;
             colors[i * 3 + 1] = g;
             colors[i * 3 + 2] = b;
+            i++;
+        }
+
+        // Render ghost cells
+        for (const [key, ttl] of allGhosts) {
+            const [col, row] = fromCellKey(key);
+            positions[i * 2] = col * settings.resolution;
+            positions[i * 2 + 1] = row * settings.resolution;
+            const brightness = ttl / 10.0;
+            colors[i * 3] = 0.2 * brightness;
+            colors[i * 3 + 1] = 0.5 * brightness;
+            colors[i * 3 + 2] = 0.8 * brightness;
             i++;
         }
 
@@ -651,7 +713,7 @@
         const pointSizeLoc = gl.getUniformLocation(renderProgram, "u_pointSize");
         gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
         gl.uniform1f(pointSizeLoc, settings.resolution);
-        gl.drawArrays(gl.POINTS, 0, liveCells.size);
+        gl.drawArrays(gl.POINTS, 0, totalPoints);
     }
 
     function gameLoop() {
@@ -672,6 +734,9 @@
 
     function loadSeed(seedName) {
         previousShapes.clear();
+        collisionCells.clear();
+        ghostCells.clear();
+        fertilityMap.clear();
         if (seedName === 'random') {
             randomizeGrid();
             return;
@@ -735,14 +800,13 @@
         render();
     }
 
-    function analyzeComplexMetrics() {
+    function analyzeMetrics() {
+        const metricMap = new Map();
         const visited = new Set();
         const currentShapes = new Map();
         let shapeIdCounter = 0;
 
-        const sizeMap = new Map();
-        const velocityMap = new Map();
-        const diversityMap = new Map();
+        const cellToShapeId = new Map();
 
         for (const key of liveCells.keys()) {
             if (!visited.has(key)) {
@@ -750,6 +814,7 @@
                 const stack = [key];
                 visited.add(key);
                 let sumX = 0, sumY = 0, minAge = Infinity, maxAge = 0;
+                const prevShapeIds = new Set();
 
                 while (stack.length > 0) {
                     const currentKey = stack.pop();
@@ -760,6 +825,10 @@
                     sumY += r;
                     if (age < minAge) minAge = age;
                     if (age > maxAge) maxAge = age;
+
+                    if (previousShapes.has(currentKey)) {
+                        prevShapeIds.add(previousShapes.get(currentKey).id);
+                    }
 
                     for (let i = -1; i < 2; i++) {
                         for (let j = -1; j < 2; j++) {
@@ -776,41 +845,115 @@
                 const centerOfMass = { x: sumX / shapeSize, y: sumY / shapeSize };
                 const diversity = maxAge - minAge;
 
-                // For velocity, find the closest matching shape from the previous frame
-                let speed = 0;
+                let speed = 0, stability = 0, growthRate = 0;
                 let bestMatchId = -1;
-                let minDistance = Infinity;
 
-                for (const [id, prevShape] of previousShapes.entries()) {
-                    const dx = centerOfMass.x - prevShape.centerOfMass.x;
-                    const dy = centerOfMass.y - prevShape.centerOfMass.y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
-                    if (distance < minDistance && Math.abs(shapeSize - prevShape.size) < shapeSize * 0.2) {
-                        minDistance = distance;
-                        speed = distance;
-                        bestMatchId = id;
+                if (prevShapeIds.size === 1) { // Matched to one previous shape
+                    bestMatchId = [...prevShapeIds][0];
+                    const prevShape = previousShapes.get(bestMatchId);
+                    if (prevShape) {
+                        const dx = centerOfMass.x - prevShape.centerOfMass.x;
+                        const dy = centerOfMass.y - prevShape.centerOfMass.y;
+                        speed = Math.sqrt(dx*dx + dy*dy);
+                        growthRate = (shapeSize - prevShape.size) / prevShape.size;
+                        if (speed < 0.1 && shapeSize === prevShape.size) stability = 2;
+                        else if (speed < 1.0 && shapeSize === prevShape.size) stability = 1;
                     }
+                } else if (prevShapeIds.size > 1) { // Collision detected
+                     shapeCells.forEach(k => collisionCells.set(k, 4)); // Flash for 4 frames
                 }
 
                 const currentShapeId = (bestMatchId !== -1) ? bestMatchId : shapeIdCounter++;
-                if (bestMatchId !== -1) previousShapes.delete(bestMatchId);
-
-                currentShapes.set(currentShapeId, { centerOfMass, size: shapeSize });
+                currentShapes.set(currentShapeId, { centerOfMass, size: shapeSize, cells: shapeCells });
 
                 for (const cellKey of shapeCells) {
-                    sizeMap.set(cellKey, shapeSize);
-                    velocityMap.set(cellKey, speed);
-                    diversityMap.set(cellKey, diversity);
+                    cellToShapeId.set(cellKey, currentShapeId);
+                    metricMap.set(cellKey, {
+                        size: shapeSize,
+                        velocity: speed,
+                        diversity: diversity,
+                        stability: stability,
+                        growthRate: growthRate,
+                    });
                 }
             }
         }
-        previousShapes = currentShapes;
+        previousShapes.clear();
+        for(const [id, shape] of currentShapes.entries()) {
+            for(const key of shape.cells) {
+                previousShapes.set(key, { id, centerOfMass: shape.centerOfMass, size: shape.size });
+            }
+        }
 
-        switch (settings.colorEffect) {
-            case 4: return sizeMap;
-            case 11: return velocityMap;
-            case 12: return diversityMap;
-            default: return new Map();
+        // Proximity calculation (if needed)
+        if (settings.colorEffect === 16) {
+            for (const [key, metrics] of metricMap.entries()) {
+                const [c, r] = fromCellKey(key);
+                metrics.proximity = findNearestNeighborDistance(c, r, cellToShapeId.get(key), cellToShapeId);
+            }
+        }
+
+        return metricMap;
+    }
+
+    function findNearestNeighborDistance(startX, startY, myShapeId, cellToShapeId) {
+        const queue = [{x: startX, y: startY, dist: 0}];
+        const visited = new Set(cellKey(startX, startY));
+        const maxDist = 15;
+
+        while(queue.length > 0) {
+            const {x, y, dist} = queue.shift();
+            if (dist >= maxDist) return maxDist;
+
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const nx = x + i;
+                    const ny = y + j;
+                    const nKey = cellKey(nx, ny);
+                    if (!visited.has(nKey)) {
+                        visited.add(nKey);
+                        if (liveCells.has(nKey)) {
+                            if (cellToShapeId.get(nKey) !== myShapeId) {
+                                return dist + 1;
+                            }
+                        }
+                        queue.push({x: nx, y: ny, dist: dist + 1});
+                    }
+                }
+            }
+        }
+        return maxDist;
+    }
+
+    function updateGhostCells() {
+        const newGhosts = new Map();
+        for (const [key, ttl] of ghostCells.entries()) {
+            if (ttl > 1) newGhosts.set(key, ttl - 1);
+        }
+        for (const key of previousLiveCells.keys()) {
+            if (!liveCells.has(key)) {
+                newGhosts.set(key, 10); // 10 frames TTL
+            }
+        }
+        ghostCells = newGhosts;
+    }
+
+    function updateFertilityMap() {
+        fertilityMap.clear();
+        for (const key of liveCells.keys()) {
+            if (liveCells.get(key) === 1) { // Is newly born
+                const [c, r] = fromCellKey(key);
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        if (i === 0 && j === 0) continue;
+                        const neighborKey = cellKey(c + i, r + j);
+                        if (previousLiveCells.has(neighborKey)) {
+                            fertilityMap.set(neighborKey, (fertilityMap.get(neighborKey) || 0) + 1);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -827,9 +970,32 @@
                     }
                 }
             }
-            densityMap.set(key, density);
+            densityMap.set(key, {density});
         }
         return densityMap;
+    }
+
+    function calculateChaosMap() {
+        const chaosMap = new Map();
+        const allKeys = new Set([...liveCells.keys(), ...previousLiveCells.keys()]);
+
+        for (const key of allKeys) {
+            const [c, r] = fromCellKey(key);
+            let chaos = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const neighborKey = cellKey(c + i, r + j);
+                    if (liveCells.has(neighborKey) !== previousLiveCells.has(neighborKey)) {
+                        chaos++;
+                    }
+                }
+            }
+            if(liveCells.has(key)) {
+                chaosMap.set(key, {chaos});
+            }
+        }
+        return chaosMap;
     }
 
 
