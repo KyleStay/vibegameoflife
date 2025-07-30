@@ -167,15 +167,6 @@
         }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
-        #killCursor {
-            position: absolute;
-            border-radius: 50%;
-            background-color: rgba(220, 38, 38, 0.3);
-            border: 1px solid rgba(220, 38, 38, 0.7);
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            z-index: 100;
-        }
         .mini-controls {
             position: fixed;
             bottom: 20px;
@@ -241,7 +232,6 @@
 
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
-        <div id="killCursor" class="hidden"></div>
 
         <div id="settingsPanel" class="panel settings-panel">
             <button id="closeSettingsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-2 rounded">&times;</button>
@@ -410,6 +400,35 @@
     }
 </script>
 
+<script id="cursor-vertex-shader" type="x-shader/x-vertex">
+    precision highp float;
+    attribute vec2 a_position;
+    uniform vec2 u_canvasResolution;
+    uniform float u_pointSize;
+
+    void main() {
+        vec2 zeroToOne = a_position / u_canvasResolution;
+        vec2 zeroToTwo = zeroToOne * 2.0;
+        vec2 clipSpace = zeroToTwo - 1.0;
+        gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);
+        gl_PointSize = u_pointSize;
+    }
+</script>
+
+<script id="cursor-fragment-shader" type="x-shader/x-fragment">
+    precision highp float;
+    uniform vec4 u_color;
+
+    void main() {
+        float dist = distance(gl_PointCoord, vec2(0.5));
+        if (dist > 0.5) {
+            discard;
+        }
+        gl_FragColor = u_color;
+    }
+</script>
+
+
 <script id="worker-script" type="javascript/worker">
     // --- Web Worker Logic ---
 
@@ -451,9 +470,8 @@
 <script>
     const canvas = document.getElementById('gameCanvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    const killCursor = document.getElementById('killCursor');
-    let renderProgram;
-    let positionBuffer, colorBuffer;
+    let renderProgram, cursorProgram;
+    let positionBuffer, colorBuffer, cursorBuffer;
     let cols = 0, rows = 0;
     let animationId;
     let isRunning = false, isDrawing = false, isKillMode = false;
@@ -469,6 +487,7 @@
     let fertilityMap = new Map();
     let currentDragMode = null; // null, 'draw', or 'erase'
     let lastCellPosition = null;
+    let cursorPositions = [];
 
     let settings = {
         resolution: 3,
@@ -536,16 +555,23 @@
             return false;
         }
 
+        // Cell rendering program
         const vertexShaderSource = document.getElementById('vertex-shader').textContent;
         const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
-
         const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
         const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-
         renderProgram = createProgram(gl, vertexShader, fragmentShader);
-
         positionBuffer = gl.createBuffer();
         colorBuffer = gl.createBuffer();
+
+        // Cursor rendering program
+        const cursorVertexSource = document.getElementById('cursor-vertex-shader').textContent;
+        const cursorFragmentSource = document.getElementById('cursor-fragment-shader').textContent;
+        const cursorVertexShader = createShader(gl, gl.VERTEX_SHADER, cursorVertexSource);
+        const cursorFragmentShader = createShader(gl, gl.FRAGMENT_SHADER, cursorFragmentSource);
+        cursorProgram = createProgram(gl, cursorVertexShader, cursorFragmentShader);
+        cursorBuffer = gl.createBuffer();
+
         return true;
     }
 
@@ -589,7 +615,7 @@
             case 8: bgColor = [59/255, 89/255, 152/255, 1.0]; break;
             case 9: bgColor = [1.0, 1.0, 1.0, 1.0]; break;
         }
-        gl.clearColor(...bgColor);
+        gl.clearColor(bgColor[0], bgColor[1], bgColor[2], 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
         // Update historical data for special themes
@@ -603,153 +629,176 @@
         const allGhosts = settings.colorEffect === 18 ? [...ghostCells.entries()] : [];
         const totalPoints = allCells.length + allGhosts.length;
 
-        if (totalPoints === 0) return;
+        if (totalPoints > 0) {
+            const positions = new Float32Array(totalPoints * 2);
+            const colors = new Float32Array(totalPoints * 3);
+            let i = 0;
 
-        const positions = new Float32Array(totalPoints * 2);
-        const colors = new Float32Array(totalPoints * 3);
-        let i = 0;
-
-        let metricMap;
-        if (settings.colorEffect >= 4 && settings.colorEffect <= 17) {
-            metricMap = analyzeMetrics();
-        } else {
-            metricMap = new Map();
-        }
-
-        // Render live cells
-        for (const [key, age] of allCells) {
-            const [col, row] = fromCellKey(key);
-
-            positions[i * 2] = col * settings.resolution;
-            positions[i * 2 + 1] = row * settings.resolution;
-
-            let r, g, b;
-            const normalizedAge = Math.min(age / 50.0, 1.0);
-
-            switch (settings.colorEffect) {
-                case 1: // Rainbow
-                    const angle = time * 0.1;
-                    const s = Math.sin(angle);
-                    const c = Math.cos(angle);
-                    const rotatedCol = col * c - row * s;
-                    const rotatedRow = col * s + row * c;
-                    const frequency = 0.03 + Math.sin(time * 0.2) * 0.02;
-                    const hue = (Math.sin(rotatedCol * frequency) + Math.cos(rotatedRow * frequency) + 2) / 4;
-                    [r, g, b] = hslToRgb(hue, 0.9, 0.6);
-                    break;
-                case 2: // Neighbor Count
-                    [r, g, b] = getNeighborColor(getNeighborCount(col, row));
-                    break;
-                case 3: // Age
-                    [r, g, b] = hslToRgb(0.55 - normalizedAge, 0.9, 0.6);
-                    break;
-                case 4: // Shape Size
-                    [r, g, b] = hslToRgb((metricMap.get(key)?.size || 1) * 0.05 % 1.0, 0.85, 0.6);
-                    break;
-                case 5: // Synthwave
-                    [r, g, b] = lerpColor([1, 0, 1], [0, 1, 1], normalizedAge);
-                    break;
-                case 6: // Bioluminescence
-                    [r, g, b] = [45/255, 212/255, 191/255];
-                    break;
-                case 7: // Scorched Earth
-                    const fireColor1 = [249/255, 115/255, 22/255], fireColor2 = [220/255, 38/255, 38/255], fireColor3 = [69/255, 10/255, 10/255];
-                    [r, g, b] = normalizedAge < 0.5 ? lerpColor(fireColor1, fireColor2, normalizedAge * 2) : lerpColor(fireColor2, fireColor3, (normalizedAge - 0.5) * 2);
-                    break;
-                case 8: // Blueprint
-                    [r, g, b] = [241/255, 245/255, 249/255];
-                    break;
-                case 9: // Monochrome
-                    [r, g, b] = [0, 0, 0];
-                    break;
-                case 10: // Local Density
-                    const density = metricMap.get(key)?.density || 0;
-                    const normDensity = Math.min(density / 50, 1.0);
-                    [r, g, b] = hslToRgb(0.6 - normDensity * 0.6, 0.9, 0.6);
-                    break;
-                case 11: // Shape Velocity
-                    const speed = metricMap.get(key)?.velocity || 0;
-                    const normSpeed = Math.min(speed / 2.0, 1.0);
-                    [r, g, b] = hslToRgb(0.6 - normSpeed * 0.6, 0.9, 0.6);
-                    break;
-                case 12: // Generational Diversity
-                    const diversity = metricMap.get(key)?.diversity || 0;
-                    const normDiversity = Math.min(diversity / 100, 1.0);
-                    [r, g, b] = lerpColor([1, 1, 1], [0.5, 0, 1], normDiversity);
-                    break;
-                case 13: // Stability
-                    const stability = metricMap.get(key)?.stability || 0; // 0: chaotic, 1: oscillator, 2: stable
-                    if (stability === 2) [r, g, b] = [0.2, 0.4, 1.0]; // Cool blue
-                    else if (stability === 1) [r, g, b] = [0.2, 0.8, 1.0]; // Cyan
-                    else [r, g, b] = [1.0, 0.8, 0.2]; // Yellow
-                    break;
-                case 14: // Growth Rate
-                    const rate = metricMap.get(key)?.growthRate || 0; // -1 to 1
-                    if (rate > 0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [0, 1, 0], rate * 10); // Gray to Green
-                    else if (rate < -0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [1, 0, 0], Math.abs(rate) * 10); // Gray to Red
-                    else [r, g, b] = [0.5, 0.5, 0.5]; // Gray
-                    break;
-                case 15: // Neighborhood Chaos
-                    const chaos = metricMap.get(key)?.chaos || 0;
-                    const normChaos = Math.min(chaos / 8, 1.0); // Max 8 neighbors can flip
-                    [r, g, b] = hslToRgb(0.6 - normChaos * 0.6, 1.0, 0.55); // Blue (calm) to Red (chaotic)
-                    break;
-                case 16: // Proximity
-                    const dist = metricMap.get(key)?.proximity || 0;
-                    const normDist = Math.min(dist / 15, 1.0); // Max search distance
-                    [r, g, b] = hslToRgb(0.3 + normDist * 0.4, 0.9, 0.6); // Green to Purple
-                    break;
-                case 17: // Collision Flash
-                    const flashTTL = collisionCells.get(key);
-                    if (flashTTL) {
-                        const flashAmt = flashTTL / 4.0;
-                        [r, g, b] = [flashAmt, flashAmt, flashAmt];
-                    } else {
-                        [r, g, b] = settings.cellColor;
-                    }
-                    break;
-                case 19: // Fertility
-                    const fertility = fertilityMap.get(key) || 0;
-                    [r, g, b] = lerpColor([0.2, 0.2, 0.8], [1, 1, 0.2], Math.min(fertility / 3, 1.0)); // Blue to Yellow
-                    break;
-                default: // Static
-                    [r, g, b] = settings.cellColor;
-                    break;
+            let metricMap;
+            if (settings.colorEffect >= 4 && settings.colorEffect <= 17) {
+                metricMap = analyzeMetrics();
+            } else {
+                metricMap = new Map();
             }
-            colors[i * 3] = r;
-            colors[i * 3 + 1] = g;
-            colors[i * 3 + 2] = b;
-            i++;
+
+            // Render live cells
+            for (const [key, age] of allCells) {
+                const [col, row] = fromCellKey(key);
+
+                positions[i * 2] = col * settings.resolution;
+                positions[i * 2 + 1] = row * settings.resolution;
+
+                let r, g, b;
+                const normalizedAge = Math.min(age / 50.0, 1.0);
+
+                switch (settings.colorEffect) {
+                    case 1: // Rainbow
+                        const angle = time * 0.1;
+                        const s = Math.sin(angle);
+                        const c = Math.cos(angle);
+                        const rotatedCol = col * c - row * s;
+                        const rotatedRow = col * s + row * c;
+                        const frequency = 0.03 + Math.sin(time * 0.2) * 0.02;
+                        const hue = (Math.sin(rotatedCol * frequency) + Math.cos(rotatedRow * frequency) + 2) / 4;
+                        [r, g, b] = hslToRgb(hue, 0.9, 0.6);
+                        break;
+                    case 2: // Neighbor Count
+                        [r, g, b] = getNeighborColor(getNeighborCount(col, row));
+                        break;
+                    case 3: // Age
+                        [r, g, b] = hslToRgb(0.55 - normalizedAge, 0.9, 0.6);
+                        break;
+                    case 4: // Shape Size
+                        [r, g, b] = hslToRgb((metricMap.get(key)?.size || 1) * 0.05 % 1.0, 0.85, 0.6);
+                        break;
+                    case 5: // Synthwave
+                        [r, g, b] = lerpColor([1, 0, 1], [0, 1, 1], normalizedAge);
+                        break;
+                    case 6: // Bioluminescence
+                        [r, g, b] = [45/255, 212/255, 191/255];
+                        break;
+                    case 7: // Scorched Earth
+                        const fireColor1 = [249/255, 115/255, 22/255], fireColor2 = [220/255, 38/255, 38/255], fireColor3 = [69/255, 10/255, 10/255];
+                        [r, g, b] = normalizedAge < 0.5 ? lerpColor(fireColor1, fireColor2, normalizedAge * 2) : lerpColor(fireColor2, fireColor3, (normalizedAge - 0.5) * 2);
+                        break;
+                    case 8: // Blueprint
+                        [r, g, b] = [241/255, 245/255, 249/255];
+                        break;
+                    case 9: // Monochrome
+                        [r, g, b] = [0, 0, 0];
+                        break;
+                    case 10: // Local Density
+                        const density = metricMap.get(key)?.density || 0;
+                        const normDensity = Math.min(density / 50, 1.0);
+                        [r, g, b] = hslToRgb(0.6 - normDensity * 0.6, 0.9, 0.6);
+                        break;
+                    case 11: // Shape Velocity
+                        const speed = metricMap.get(key)?.velocity || 0;
+                        const normSpeed = Math.min(speed / 2.0, 1.0);
+                        [r, g, b] = hslToRgb(0.6 - normSpeed * 0.6, 0.9, 0.6);
+                        break;
+                    case 12: // Generational Diversity
+                        const diversity = metricMap.get(key)?.diversity || 0;
+                        const normDiversity = Math.min(diversity / 100, 1.0);
+                        [r, g, b] = lerpColor([1, 1, 1], [0.5, 0, 1], normDiversity);
+                        break;
+                    case 13: // Stability
+                        const stability = metricMap.get(key)?.stability || 0; // 0: chaotic, 1: oscillator, 2: stable
+                        if (stability === 2) [r, g, b] = [0.2, 0.4, 1.0]; // Cool blue
+                        else if (stability === 1) [r, g, b] = [0.2, 0.8, 1.0]; // Cyan
+                        else [r, g, b] = [1.0, 0.8, 0.2]; // Yellow
+                        break;
+                    case 14: // Growth Rate
+                        const rate = metricMap.get(key)?.growthRate || 0; // -1 to 1
+                        if (rate > 0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [0, 1, 0], rate * 10); // Gray to Green
+                        else if (rate < -0.01) [r, g, b] = lerpColor([0.5, 0.5, 0.5], [1, 0, 0], Math.abs(rate) * 10); // Gray to Red
+                        else [r, g, b] = [0.5, 0.5, 0.5]; // Gray
+                        break;
+                    case 15: // Neighborhood Chaos
+                        const chaos = metricMap.get(key)?.chaos || 0;
+                        const normChaos = Math.min(chaos / 8, 1.0); // Max 8 neighbors can flip
+                        [r, g, b] = hslToRgb(0.6 - normChaos * 0.6, 1.0, 0.55); // Blue (calm) to Red (chaotic)
+                        break;
+                    case 16: // Proximity
+                        const dist = metricMap.get(key)?.proximity || 0;
+                        const normDist = Math.min(dist / 15, 1.0); // Max search distance
+                        [r, g, b] = hslToRgb(0.3 + normDist * 0.4, 0.9, 0.6); // Green to Purple
+                        break;
+                    case 17: // Collision Flash
+                        const flashTTL = collisionCells.get(key);
+                        if (flashTTL) {
+                            const flashAmt = flashTTL / 4.0;
+                            [r, g, b] = [flashAmt, flashAmt, flashAmt];
+                        } else {
+                            [r, g, b] = settings.cellColor;
+                        }
+                        break;
+                    case 19: // Fertility
+                        const fertility = fertilityMap.get(key) || 0;
+                        [r, g, b] = lerpColor([0.2, 0.2, 0.8], [1, 1, 0.2], Math.min(fertility / 3, 1.0)); // Blue to Yellow
+                        break;
+                }
+                colors[i * 3] = r;
+                colors[i * 3 + 1] = g;
+                colors[i * 3 + 2] = b;
+                i++;
+            }
+
+            // Render ghost cells
+            for (const [key, ttl] of allGhosts) {
+                const [col, row] = fromCellKey(key);
+                positions[i * 2] = col * settings.resolution;
+                positions[i * 2 + 1] = row * settings.resolution;
+                const brightness = ttl / 10.0;
+                colors[i * 3] = 0.2 * brightness;
+                colors[i * 3 + 1] = 0.5 * brightness;
+                colors[i * 3 + 2] = 0.8 * brightness;
+                i++;
+            }
+
+            gl.useProgram(renderProgram);
+            const positionLocation = gl.getAttribLocation(renderProgram, 'a_position');
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+            const colorLocation = gl.getAttribLocation(renderProgram, 'a_color');
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(colorLocation);
+            gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
+            const canvasResLoc = gl.getUniformLocation(renderProgram, "u_canvasResolution");
+            const pointSizeLoc = gl.getUniformLocation(renderProgram, "u_pointSize");
+            gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
+            gl.uniform1f(pointSizeLoc, settings.resolution);
+            gl.drawArrays(gl.POINTS, 0, totalPoints);
         }
 
-        // Render ghost cells
-        for (const [key, ttl] of allGhosts) {
-            const [col, row] = fromCellKey(key);
-            positions[i * 2] = col * settings.resolution;
-            positions[i * 2 + 1] = row * settings.resolution;
-            const brightness = ttl / 10.0;
-            colors[i * 3] = 0.2 * brightness;
-            colors[i * 3 + 1] = 0.5 * brightness;
-            colors[i * 3 + 2] = 0.8 * brightness;
-            i++;
-        }
+        // Render Cursors
+        if (isKillMode && cursorPositions.length > 0) {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-        gl.useProgram(renderProgram);
-        const positionLocation = gl.getAttribLocation(renderProgram, 'a_position');
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(positionLocation);
-        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-        const colorLocation = gl.getAttribLocation(renderProgram, 'a_color');
-        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(colorLocation);
-        gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
-        const canvasResLoc = gl.getUniformLocation(renderProgram, "u_canvasResolution");
-        const pointSizeLoc = gl.getUniformLocation(renderProgram, "u_pointSize");
-        gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
-        gl.uniform1f(pointSizeLoc, settings.resolution);
-        gl.drawArrays(gl.POINTS, 0, totalPoints);
+            gl.useProgram(cursorProgram);
+
+            const positionLocation = gl.getAttribLocation(cursorProgram, 'a_position');
+            gl.bindBuffer(gl.ARRAY_BUFFER, cursorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cursorPositions), gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+            const canvasResLoc = gl.getUniformLocation(cursorProgram, "u_canvasResolution");
+            const pointSizeLoc = gl.getUniformLocation(cursorProgram, "u_pointSize");
+            const colorLoc = gl.getUniformLocation(cursorProgram, "u_color");
+
+            gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
+            gl.uniform1f(pointSizeLoc, settings.resolution * 20);
+            gl.uniform4f(colorLoc, 220/255, 38/255, 38/255, 0.3);
+
+            gl.drawArrays(gl.POINTS, 0, cursorPositions.length / 2);
+
+            gl.disable(gl.BLEND);
+        }
     }
 
     function gameLoop() {
@@ -1114,8 +1163,8 @@
             canvas.addEventListener('mousedown', ui.handleMouseDown);
             canvas.addEventListener('mousemove', ui.handleMouseMove);
             canvas.addEventListener('mouseup', () => { isDrawing = false; currentDragMode = null; lastCellPosition = null; });
-            canvas.addEventListener('mouseleave', () => { isDrawing = false; currentDragMode = null; lastCellPosition = null; killCursor.classList.add('hidden'); });
-            canvas.addEventListener('mouseenter', (e) => { if (isKillMode) { killCursor.classList.remove('hidden'); ui.updateKillCursor(e); } });
+            canvas.addEventListener('mouseleave', () => { isDrawing = false; currentDragMode = null; lastCellPosition = null; cursorPositions = []; render(); });
+            canvas.addEventListener('mouseenter', (e) => { if (isKillMode) { ui.updateKillCursor(e); } });
             canvas.addEventListener('touchstart', ui.handleMouseDown, { passive: false });
             canvas.addEventListener('touchmove', ui.handleMouseMove, { passive: false });
             canvas.addEventListener('touchend', () => { isDrawing = false; currentDragMode = null; lastCellPosition = null; });
@@ -1210,7 +1259,8 @@
             document.getElementById('drawIcon').classList.toggle('hidden', isKillMode);
             document.getElementById('killIcon').classList.toggle('hidden', !isKillMode);
             if (!isKillMode) {
-                killCursor.classList.add('hidden');
+                cursorPositions = [];
+                render();
             }
         },
         hide() {
@@ -1261,36 +1311,43 @@
         },
         handleMouseMove(e) {
             if(e.touches) e.preventDefault();
-            ui.updateKillCursor(e);
-            if (isDrawing) {
-                const rect = canvas.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                const x = (clientX - rect.left) * dpr;
-                const y = (clientY - rect.top) * dpr;
-                const col = Math.floor(x / settings.resolution);
-                const row = Math.floor(y / settings.resolution);
 
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const x = (clientX - rect.left) * dpr;
+            const y = (clientY - rect.top) * dpr;
+            const col = Math.floor(x / settings.resolution);
+            const row = Math.floor(y / settings.resolution);
+
+            if (isKillMode) {
+                ui.updateKillCursor(x, y);
+            }
+
+            if (isDrawing) {
                 if (lastCellPosition && (lastCellPosition.col !== col || lastCellPosition.row !== row)) {
                     plotLine(lastCellPosition.col, lastCellPosition.row, col, row);
                 }
                 lastCellPosition = { col, row };
-                render();
             }
+            render();
         },
-        updateKillCursor(e) {
-            if (isKillMode) {
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                killCursor.classList.remove('hidden');
-                killCursor.style.left = `${clientX}px`;
-                killCursor.style.top = `${clientY}px`;
-                const dpr = window.devicePixelRatio || 1;
-                const size = (settings.resolution * 20) / dpr;
-                killCursor.style.width = `${size}px`;
-                killCursor.style.height = `${size}px`;
-            }
+        updateKillCursor(x, y) {
+            cursorPositions = [];
+            const radius = (settings.resolution * 10);
+
+            cursorPositions.push(x, y);
+
+            if (x - radius < 0) cursorPositions.push(x + canvas.width, y);
+            if (x + radius > canvas.width) cursorPositions.push(x - canvas.width, y);
+            if (y - radius < 0) cursorPositions.push(x, y + canvas.height);
+            if (y + radius > canvas.height) cursorPositions.push(x, y - canvas.height);
+
+            if (x - radius < 0 && y - radius < 0) cursorPositions.push(x + canvas.width, y + canvas.height);
+            if (x + radius > canvas.width && y - radius < 0) cursorPositions.push(x - canvas.width, y + canvas.height);
+            if (x - radius < 0 && y + radius > canvas.height) cursorPositions.push(x + canvas.width, y - canvas.height);
+            if (x + radius > canvas.width && y + radius > canvas.height) cursorPositions.push(x - canvas.width, y - canvas.height);
         },
         updateSetting(key, value) {
             const numValue = parseFloat(value);
@@ -1447,6 +1504,7 @@
                         }
                     } else {
                         if (liveNeighbors === 3) {
+                            // A 'dead' cell becomes 'main', any other new cell is a 'neighbor'
                             nextGrid[index] = (type === 'dead') ? 'main' : 'neighbor';
                         }
                     }
