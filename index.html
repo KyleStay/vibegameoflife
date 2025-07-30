@@ -245,10 +245,30 @@
                 <div class="input-group"><button data-for="rainbowSpeedInput" data-step="-0.1">-</button><input type="number" id="rainbowSpeedInput" data-key="rainbowSpeed" min="0.1" max="5" step="0.1"><button data-for="rainbowSpeedInput" data-step="0.1">+</button></div>
                 <input type="range" id="rainbowSpeedSlider" min="0.1" max="5" step="0.1">
             </div>
-            <div class="form-group"><label for="colorPicker">Cell Color</label><input type="color" id="colorPicker"></div>
+            <div id="colorPickerGroup" class="form-group">
+                <label for="colorPicker">Cell Color</label>
+                <input type="color" id="colorPicker">
+            </div>
             <div class="form-group">
                 <label for="colorEffectSelect">Color Effect</label>
-                <div class="relative"><select id="colorEffectSelect" class="btn pr-10"><option value="0">Static</option><option value="1">Rainbow</option><option value="2">Neighbor Count</option><option value="3">Age</option><option value="4">Shape Size</option></select><div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400"><svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div></div>
+                <div class="relative">
+                    <select id="colorEffectSelect" class="btn pr-10">
+                        <option value="0">Static</option>
+                        <option value="1">Rainbow</option>
+                        <option value="2">Neighbor Count</option>
+                        <option value="3">Age</option>
+                        <option value="4">Shape Size</option>
+                        <option value="5">Synthwave</option>
+                        <option value="6">Bioluminescence</option>
+                        <option value="7">Scorched Earth</option>
+                        <option value="8">Blueprint</option>
+                        <option value="9">Monochrome</option>
+                        <option value="10">Local Density</option>
+                        <option value="11">Shape Velocity</option>
+                        <option value="12">Generational Diversity</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400"><svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div>
+                </div>
             </div>
         </div>
 
@@ -406,6 +426,7 @@
     let time = 0;
     let worker;
     let isCalculating = false;
+    let previousShapes = new Map();
 
     let settings = {
         resolution: 3,
@@ -513,8 +534,19 @@
         worker.postMessage({ liveCellsArray: Array.from(liveCells.entries()), cols, rows });
     }
 
+    function lerp(a, b, t) { return a * (1 - t) + b * t; }
+    function lerpColor(c1, c2, t) { return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]; }
+
     function render() {
-        gl.clearColor(0.04, 0.04, 0.04, 1.0);
+        let bgColor = [0.04, 0.04, 0.04, 1.0];
+        switch (settings.colorEffect) {
+            case 5: bgColor = [26/255, 16/255, 60/255, 1.0]; break;
+            case 6: bgColor = [3/255, 7/255, 30/255, 1.0]; break;
+            case 7: bgColor = [28/255, 25/255, 23/255, 1.0]; break;
+            case 8: bgColor = [59/255, 89/255, 152/255, 1.0]; break;
+            case 9: bgColor = [1.0, 1.0, 1.0, 1.0]; break;
+        }
+        gl.clearColor(...bgColor);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
         if (liveCells.size === 0) return;
@@ -523,10 +555,21 @@
         const colors = new Float32Array(liveCells.size * 3);
         let i = 0;
 
-        let shapeMap;
-        if (settings.colorEffect === 4) {
-            shapeMap = findShapes();
+        let metricMap;
+        switch (settings.colorEffect) {
+            case 4:
+            case 11:
+            case 12:
+                metricMap = analyzeComplexMetrics();
+                break;
+            case 10:
+                metricMap = calculateLocalDensityMap();
+                break;
+            default:
+                metricMap = new Map();
+                break;
         }
+
 
         for (const [key, age] of liveCells.entries()) {
             const [col, row] = fromCellKey(key);
@@ -535,6 +578,8 @@
             positions[i * 2 + 1] = row * settings.resolution;
 
             let r, g, b;
+            const normalizedAge = Math.min(age / 50.0, 1.0);
+
             switch (settings.colorEffect) {
                 case 1: // Rainbow
                     const frequency = 0.05;
@@ -542,16 +587,44 @@
                     [r, g, b] = hslToRgb(hue, 0.9, 0.6);
                     break;
                 case 2: // Neighbor Count
-                    const neighborCount = getNeighborCount(col, row);
-                    [r, g, b] = getNeighborColor(neighborCount);
+                    [r, g, b] = getNeighborColor(getNeighborCount(col, row));
                     break;
                 case 3: // Age
-                    const normalizedAge = Math.min(age / 50.0, 1.0);
                     [r, g, b] = hslToRgb(0.55 - normalizedAge, 0.9, 0.6);
                     break;
                 case 4: // Shape Size
-                    const size = shapeMap.get(key) || 1;
-                    [r, g, b] = hslToRgb(size * 0.05 % 1.0, 0.85, 0.6);
+                    [r, g, b] = hslToRgb((metricMap.get(key) || 1) * 0.05 % 1.0, 0.85, 0.6);
+                    break;
+                case 5: // Synthwave
+                    [r, g, b] = lerpColor([1, 0, 1], [0, 1, 1], normalizedAge);
+                    break;
+                case 6: // Bioluminescence
+                    [r, g, b] = [45/255, 212/255, 191/255];
+                    break;
+                case 7: // Scorched Earth
+                    const fireColor1 = [249/255, 115/255, 22/255], fireColor2 = [220/255, 38/255, 38/255], fireColor3 = [69/255, 10/255, 10/255];
+                    [r, g, b] = normalizedAge < 0.5 ? lerpColor(fireColor1, fireColor2, normalizedAge * 2) : lerpColor(fireColor2, fireColor3, (normalizedAge - 0.5) * 2);
+                    break;
+                case 8: // Blueprint
+                    [r, g, b] = [241/255, 245/255, 249/255];
+                    break;
+                case 9: // Monochrome
+                    [r, g, b] = [0, 0, 0];
+                    break;
+                case 10: // Local Density
+                    const density = metricMap.get(key) || 0;
+                    const normDensity = Math.min(density / 50, 1.0); // Normalize based on expected max density
+                    [r, g, b] = hslToRgb(0.6 - normDensity * 0.6, 0.9, 0.6); // Blue to Red
+                    break;
+                case 11: // Shape Velocity
+                    const speed = metricMap.get(key) || 0;
+                    const normSpeed = Math.min(speed / 2.0, 1.0); // Normalize based on expected max speed
+                    [r, g, b] = hslToRgb(0.6 - normSpeed * 0.6, 0.9, 0.6); // Blue (slow) to Red (fast)
+                    break;
+                case 12: // Generational Diversity
+                    const diversity = metricMap.get(key) || 0;
+                    const normDiversity = Math.min(diversity / 100, 1.0); // Normalize
+                    [r, g, b] = lerpColor([1, 1, 1], [0.5, 0, 1], normDiversity); // White to Purple
                     break;
                 default: // Static
                     [r, g, b] = settings.cellColor;
@@ -564,24 +637,20 @@
         }
 
         gl.useProgram(renderProgram);
-
         const positionLocation = gl.getAttribLocation(renderProgram, 'a_position');
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(positionLocation);
         gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
         const colorLocation = gl.getAttribLocation(renderProgram, 'a_color');
         gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(colorLocation);
         gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
-
         const canvasResLoc = gl.getUniformLocation(renderProgram, "u_canvasResolution");
         const pointSizeLoc = gl.getUniformLocation(renderProgram, "u_pointSize");
         gl.uniform2f(canvasResLoc, canvas.width, canvas.height);
         gl.uniform1f(pointSizeLoc, settings.resolution);
-
         gl.drawArrays(gl.POINTS, 0, liveCells.size);
     }
 
@@ -596,13 +665,13 @@
         canvas.width = Math.round(window.innerWidth * dpr);
         canvas.height = Math.round(window.innerHeight * dpr);
         gl.viewport(0, 0, canvas.width, canvas.height);
-
         cols = Math.ceil(canvas.width / settings.resolution);
         rows = Math.ceil(canvas.height / settings.resolution);
         loadSeed('random');
     }
 
     function loadSeed(seedName) {
+        previousShapes.clear();
         if (seedName === 'random') {
             randomizeGrid();
             return;
@@ -610,10 +679,8 @@
         liveCells.clear();
         const pattern = seeds[seedName];
         if (!pattern) return;
-
         const centerX = Math.floor(cols / 2);
         const centerY = Math.floor(rows / 2);
-
         for (const [x, y] of pattern) {
             liveCells.set(cellKey(centerX + x, centerY + y), 1);
         }
@@ -621,6 +688,7 @@
     }
 
     function randomizeGrid() {
+        previousShapes.clear();
         liveCells.clear();
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -633,6 +701,7 @@
     }
 
     function resetGrid() {
+        previousShapes.clear();
         liveCells.clear();
         render();
     }
@@ -644,7 +713,6 @@
         const clientY = event.touches ? event.touches[0].clientY : event.clientY;
         const x = (clientX - rect.left) * dpr;
         const y = (clientY - rect.top) * dpr;
-
         const col = Math.floor(x / settings.resolution);
         const row = Math.floor(y / settings.resolution);
 
@@ -653,39 +721,48 @@
             for (let i = -radius; i <= radius; i++) {
                 for (let j = -radius; j <= radius; j++) {
                     if (i*i + j*j <= radius*radius) {
-                        const key = cellKey((col + i + cols) % cols, (row + j + rows) % rows);
-                        liveCells.delete(key);
+                        liveCells.delete(cellKey((col + i + cols) % cols, (row + j + rows) % rows));
                     }
                 }
             }
         } else {
             if (col >= 0 && col < cols && row >= 0 && row < rows) {
                 const key = cellKey(col, row);
-                if (liveCells.has(key)) {
-                    liveCells.delete(key);
-                } else {
-                    liveCells.set(key, 1);
-                }
+                if (liveCells.has(key)) liveCells.delete(key);
+                else liveCells.set(key, 1);
             }
         }
         render();
     }
 
-    function findShapes() {
+    function analyzeComplexMetrics() {
         const visited = new Set();
-        const shapeMap = new Map();
+        const currentShapes = new Map();
+        let shapeIdCounter = 0;
+
+        const sizeMap = new Map();
+        const velocityMap = new Map();
+        const diversityMap = new Map();
+
         for (const key of liveCells.keys()) {
             if (!visited.has(key)) {
-                const shape = [];
+                const shapeCells = [];
                 const stack = [key];
                 visited.add(key);
+                let sumX = 0, sumY = 0, minAge = Infinity, maxAge = 0;
+
                 while (stack.length > 0) {
                     const currentKey = stack.pop();
-                    shape.push(currentKey);
+                    shapeCells.push(currentKey);
                     const [c, r] = fromCellKey(currentKey);
+                    const age = liveCells.get(currentKey);
+                    sumX += c;
+                    sumY += r;
+                    if (age < minAge) minAge = age;
+                    if (age > maxAge) maxAge = age;
+
                     for (let i = -1; i < 2; i++) {
                         for (let j = -1; j < 2; j++) {
-                            if (i === 0 && j === 0) continue;
                             const neighborKey = cellKey((c + i + cols) % cols, (r + j + rows) % rows);
                             if (liveCells.has(neighborKey) && !visited.has(neighborKey)) {
                                 visited.add(neighborKey);
@@ -694,14 +771,67 @@
                         }
                     }
                 }
-                const shapeSize = shape.length;
-                for (const shapeKey of shape) {
-                    shapeMap.set(shapeKey, shapeSize);
+
+                const shapeSize = shapeCells.length;
+                const centerOfMass = { x: sumX / shapeSize, y: sumY / shapeSize };
+                const diversity = maxAge - minAge;
+
+                // For velocity, find the closest matching shape from the previous frame
+                let speed = 0;
+                let bestMatchId = -1;
+                let minDistance = Infinity;
+
+                for (const [id, prevShape] of previousShapes.entries()) {
+                    const dx = centerOfMass.x - prevShape.centerOfMass.x;
+                    const dy = centerOfMass.y - prevShape.centerOfMass.y;
+                    const distance = Math.sqrt(dx*dx + dy*dy);
+                    if (distance < minDistance && Math.abs(shapeSize - prevShape.size) < shapeSize * 0.2) {
+                        minDistance = distance;
+                        speed = distance;
+                        bestMatchId = id;
+                    }
+                }
+
+                const currentShapeId = (bestMatchId !== -1) ? bestMatchId : shapeIdCounter++;
+                if (bestMatchId !== -1) previousShapes.delete(bestMatchId);
+
+                currentShapes.set(currentShapeId, { centerOfMass, size: shapeSize });
+
+                for (const cellKey of shapeCells) {
+                    sizeMap.set(cellKey, shapeSize);
+                    velocityMap.set(cellKey, speed);
+                    diversityMap.set(cellKey, diversity);
                 }
             }
         }
-        return shapeMap;
+        previousShapes = currentShapes;
+
+        switch (settings.colorEffect) {
+            case 4: return sizeMap;
+            case 11: return velocityMap;
+            case 12: return diversityMap;
+            default: return new Map();
+        }
     }
+
+    function calculateLocalDensityMap() {
+        const densityMap = new Map();
+        const radius = 6;
+        for (const key of liveCells.keys()) {
+            const [c, r] = fromCellKey(key);
+            let density = 0;
+            for (let i = -radius; i <= radius; i++) {
+                for (let j = -radius; j <= radius; j++) {
+                    if (liveCells.has(cellKey(c + i, r + j))) {
+                        density++;
+                    }
+                }
+            }
+            densityMap.set(key, density);
+        }
+        return densityMap;
+    }
+
 
     function hslToRgb(h, s, l) {
         let r, g, b;
@@ -785,6 +915,7 @@
             });
             document.getElementById('colorEffectSelect').addEventListener('change', e => {
                 settings.colorEffect = parseInt(e.target.value);
+                document.getElementById('colorPickerGroup').style.display = (settings.colorEffect === 0) ? 'grid' : 'none';
                 if (!isRunning) render();
             });
 
@@ -908,6 +1039,7 @@
             document.getElementById('rainbowSpeedSlider').value = settings.rainbowSpeed;
             document.getElementById('colorPicker').value = `#${settings.cellColor.map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('')}`;
             document.getElementById('colorEffectSelect').value = settings.colorEffect;
+            document.getElementById('colorPickerGroup').style.display = (settings.colorEffect === 0) ? 'grid' : 'none';
         },
         showRules() {
             document.getElementById('rulesScreen').style.display = 'block';
