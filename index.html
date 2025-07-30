@@ -10,6 +10,7 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #0a0a0a;
+            color: #f3f4f6;
             margin: 0;
             padding: 0;
             overflow: hidden;
@@ -39,6 +40,7 @@
         .panel.hidden {
             opacity: 0;
             visibility: hidden;
+            pointer-events: none;
         }
         .controls {
             bottom: 20px;
@@ -47,8 +49,7 @@
             justify-content: center;
             gap: 10px;
             z-index: 10;
-            opacity: 1;
-            visibility: visible;
+            width: clamp(320px, 90%, 900px);
         }
         .settings-panel {
             position: fixed;
@@ -57,32 +58,38 @@
             display: grid;
             gap: 1rem;
             padding: 20px;
-            padding-top: 40px; /* Add padding to avoid overlap with close button */
-            z-index: 11; /* Ensure settings are on top of controls */
+            padding-top: 40px;
+            z-index: 11;
             opacity: 0;
             visibility: hidden;
+            max-height: 65vh;
+            overflow-y: auto;
         }
         .settings-panel.visible {
             opacity: 1;
             visibility: visible;
         }
-        .btn {
+        .btn, .select-btn-container {
             background-color: rgba(31, 41, 55, 0.7);
             color: #f3f4f6;
             font-weight: 500;
-            padding: 10px 20px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
             transition: all 0.2s ease;
             white-space: nowrap;
+            position: relative;
+            padding: 10px 20px;
         }
-        .btn:hover {
+        .select-btn {
+            padding-right: 3rem;
+        }
+        .btn:hover, .select-btn-container:hover {
             background-color: rgba(55, 65, 81, 0.9);
             transform: translateY(-2px);
         }
         .btn.active {
-            background-color: #dc2626; /* Red for active kill mode */
+            background-color: #dc2626;
             color: white;
         }
         #startStopBtn.active {
@@ -127,10 +134,14 @@
             width: 100%;
             grid-column: span 2;
         }
-        select.btn {
+        select {
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
+            background: transparent;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
         }
         input[type="color"] {
             -webkit-appearance: none;
@@ -151,7 +162,7 @@
             background-color: rgba(220, 38, 38, 0.3);
             border: 1px solid rgba(220, 38, 38, 0.7);
             transform: translate(-50%, -50%);
-            pointer-events: none; /* Allows clicks to pass through to the canvas */
+            pointer-events: none;
             z-index: 100;
         }
         .mini-controls {
@@ -182,229 +193,131 @@
         .mini-btn.active {
             background-color: #dc2626;
         }
-         #miniStartStopBtn.active {
+        #miniStartStopBtn.active {
              background-color: #0e7490;
         }
-        /* Docs Panel Styles */
-        #docsPanel {
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: clamp(320px, 90vw, 900px);
-            max-height: 90vh;
-            overflow-y: auto;
+        /* Rules Screen Styles */
+        #rulesScreen {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(10px);
             z-index: 20;
+            overflow-y: auto;
             padding: 2rem;
-        }
-        .docs-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
+            display: none;
         }
         .rule-card {
-            background-color: rgba(31, 41, 55, 0.5);
+            background-color: #1f2937;
             border-radius: 12px;
             padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
         .mini-canvas {
             width: 100%;
-            aspect-ratio: 1;
-            background-color: #0a0a0a;
+            aspect-ratio: 1.5;
+            background-color: #111827;
             border-radius: 8px;
             margin-bottom: 1rem;
         }
     </style>
 </head>
-<body>
+<body class="antialiased">
 
-    <canvas id="gameCanvas"></canvas>
-    <div id="killCursor" class="hidden"></div>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="killCursor" class="hidden"></div>
 
-    <div id="settingsPanel" class="panel settings-panel">
-        <button id="closeSettingsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-2 rounded">&times;</button>
-        <div class="form-group">
-            <label for="resolutionInput">Square Size</label>
-            <div class="input-group">
-                <button data-for="resolutionInput" data-step="-1">-</button>
-                <input type="number" id="resolutionInput" data-key="resolution" min="1" max="30">
-                <button data-for="resolutionInput" data-step="1">+</button>
+        <div id="settingsPanel" class="panel settings-panel">
+            <button id="closeSettingsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-2 rounded">&times;</button>
+            <div class="form-group">
+                <label for="resolutionInput">Square Size</label>
+                <div class="input-group"><button data-for="resolutionInput" data-step="-1">-</button><input type="number" id="resolutionInput" data-key="resolution" min="1" max="30"><button data-for="resolutionInput" data-step="1">+</button></div>
+                <input type="range" id="resolutionSlider" min="1" max="30">
             </div>
-            <input type="range" id="resolutionSlider" min="1" max="30">
-        </div>
-        <div class="form-group">
-            <label for="fpsInput">Frame Rate</label>
-            <div class="input-group">
-                <button data-for="fpsInput" data-step="-1">-</button>
-                <input type="number" id="fpsInput" data-key="frameRate" min="1" max="144">
-                <button data-for="fpsInput" data-step="1">+</button>
+            <div class="form-group">
+                <label for="frameRateInput">Frame Rate</label>
+                <div class="input-group"><button data-for="frameRateInput" data-step="-1">-</button><input type="number" id="frameRateInput" data-key="frameRate" min="1" max="144"><button data-for="frameRateInput" data-step="1">+</button></div>
+                <input type="range" id="frameRateSlider" min="1" max="144">
             </div>
-            <input type="range" id="fpsSlider" min="1" max="144">
-        </div>
-        <div class="form-group">
-            <label for="rainbowSpeedInput">Rainbow Speed</label>
-            <div class="input-group">
-                <button data-for="rainbowSpeedInput" data-step="-0.1">-</button>
-                <input type="number" id="rainbowSpeedInput" data-key="rainbowSpeed" min="0.1" max="5" step="0.1">
-                <button data-for="rainbowSpeedInput" data-step="0.1">+</button>
+            <div class="form-group">
+                <label for="rainbowSpeedInput">Rainbow Speed</label>
+                <div class="input-group"><button data-for="rainbowSpeedInput" data-step="-0.1">-</button><input type="number" id="rainbowSpeedInput" data-key="rainbowSpeed" min="0.1" max="5" step="0.1"><button data-for="rainbowSpeedInput" data-step="0.1">+</button></div>
+                <input type="range" id="rainbowSpeedSlider" min="0.1" max="5" step="0.1">
             </div>
-            <input type="range" id="rainbowSpeedSlider" min="0.1" max="5" step="0.1">
+            <div class="form-group"><label for="colorPicker">Cell Color</label><input type="color" id="colorPicker"></div>
+            <div class="form-group">
+                <label for="colorEffectSelect">Color Effect</label>
+                <div class="relative"><select id="colorEffectSelect" class="btn pr-10"><option value="0">Static</option><option value="1">Rainbow</option><option value="2">Neighbor Count</option><option value="3">Age</option><option value="4">Shape Size</option></select><div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400"><svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div></div>
+            </div>
         </div>
-        <div class="form-group">
-            <label for="colorPicker">Cell Color</label>
-            <input type="color" id="colorPicker">
-        </div>
-        <div class="form-group">
-            <label for="colorEffectSelect">Color Effect</label>
-            <div class="relative">
-                <select id="colorEffectSelect" class="btn pr-10">
-                    <option value="0">Static</option>
-                    <option value="1">Rainbow</option>
-                    <option value="2">Neighbor Count</option>
-                    <option value="3">Age</option>
-                    <option value="4">Shape Size</option>
+
+        <div id="controlsPanel" class="panel controls">
+            <button id="startStopBtn" class="btn">Start</button>
+            <button id="stepBtn" class="btn">Step</button>
+            <div class="relative btn hover:transform-none">
+                <select id="seedSelect" class="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer">
+                    <option value="random">Random</option>
+                    <optgroup label="Still Lifes"><option value="block">Block</option><option value="beehive">Beehive</option><option value="loaf">Loaf</option><option value="boat">Boat</option><option value="tub">Tub</option></optgroup>
+                    <optgroup label="Spaceships"><option value="glider">Glider</option><option value="lwss">Lightweight Spaceship</option><option value="mwss">Middleweight Spaceship</option><option value="hwss">Heavyweight Spaceship</option><option value="copperhead">Copperhead</option></optgroup>
+                    <optgroup label="Oscillators"><option value="blinker">Blinker</option><option value="toad">Toad</option><option value="beacon">Beacon</option><option value="pulsar">Pulsar</option><option value="pentadecathlon">Pentadecathlon</option><option value="figureEight">Figure Eight</option></optgroup>
+                    <optgroup label="Guns & Puffers"><option value="gosperGliderGun">Gosper Glider Gun</option><option value="simkinGliderGun">Simkin Glider Gun</option><option value="blockLayingSwitchEngine">Block Laying Switch Engine</option></optgroup>
+                    <optgroup label="Methuselahs"><option value="rPentomino">R-pentomino</option><option value="acorn">Acorn</option><option value="diehard">Diehard</option></optgroup>
+                    <optgroup label="Exotic"><option value="gliderDuplicator">Glider Duplicator</option><option value="max">Max</option></optgroup>
                 </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                    <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                </div>
+                <span id="seedSelectLabel">Random</span>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400"><svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg></div>
             </div>
+            <button id="resetBtn" class="btn">Reset</button>
+            <button id="rulesBtn" class="btn">Rules</button>
+            <button id="settingsBtn" class="btn">Settings</button>
+            <button id="killModeBtn" class="btn">Kill</button>
+            <button id="fullscreenBtn" class="btn">Fullscreen</button>
+            <button id="hideBtn" class="btn">Hide</button>
+        </div>
+
+        <div id="miniControlsPanel" class="mini-controls hidden">
+            <button id="miniStartStopBtn" class="mini-btn"><svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg></button>
+            <button id="miniKillModeBtn" class="mini-btn"><svg id="drawIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg><svg id="killIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M20 20a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"></path><path d="M16 16.5 8 8.5"></path><path d="m8 16.5 8-8"></path></svg></button>
+            <button id="unhideBtn" class="mini-btn"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            <button id="hideAllBtn" class="mini-btn"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg></button>
         </div>
     </div>
 
-    <div id="docsPanel" class="panel hidden text-gray-200">
-        <button id="closeDocsBtn" class="absolute top-2 right-2 text-gray-400 hover:text-white text-3xl leading-none px-3 py-1 rounded">&times;</button>
-        <h2 class="text-3xl font-bold text-cyan-400 mb-4 text-center">The Rules of Life</h2>
-        <p class="mb-8 text-center text-gray-400">The simulation evolves based on four simple rules applied to each cell simultaneously in every generation. The yellow cell is the one being evaluated.</p>
-        <div class="docs-grid">
-            <div class="rule-card">
-                <h3 class="font-bold text-lg text-white mb-2">1. Underpopulation</h3>
-                <p class="text-sm text-gray-400 mb-4">A living cell with **zero or one** live neighbours dies from loneliness.</p>
-                <div class="flex gap-4">
-                    <div>
-                        <canvas class="mini-canvas" id="rule1a-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="0">Replay (1 Neighbor)</button>
-                    </div>
-                    <div>
-                        <canvas class="mini-canvas" id="rule1b-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="1">Replay (0 Neighbors)</button>
-                    </div>
-                </div>
+    <div id="rulesScreen">
+        <div class="max-w-4xl mx-auto p-6 sm:p-8">
+            <div class="flex justify-between items-center mb-8">
+                 <h1 class="text-3xl sm:text-4xl font-bold text-cyan-400 text-center">The Rules of Life</h1>
+                 <button id="closeRulesBtn" class="text-gray-400 hover:text-white text-4xl leading-none px-3 py-1 rounded-full">&times;</button>
             </div>
-            <div class="rule-card">
-                <h3 class="font-bold text-lg text-white mb-2">2. Survival</h3>
-                <p class="text-sm text-gray-400 mb-4">A living cell with **two or three** live neighbours survives to the next generation.</p>
-                 <div class="flex gap-4">
-                    <div>
-                        <canvas class="mini-canvas" id="rule2a-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="2">Replay (2 Neighbors)</button>
-                    </div>
-                    <div>
-                        <canvas class="mini-canvas" id="rule2b-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="3">Replay (3 Neighbors)</button>
-                    </div>
+            <p class="text-center text-gray-400 mb-12 max-w-2xl mx-auto">The universe of the Game of Life is an infinite grid of square cells. Each cell can be in one of two states: alive or dead. Every cell interacts with its eight neighbours, which are the cells that are horizontally, vertically, or diagonally adjacent.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="rule-card">
+                    <h2 class="text-xl font-bold text-white mb-2">1. Underpopulation</h2>
+                    <p class="text-gray-400 mb-4">A living (<span class="text-yellow-300 font-semibold">yellow</span>) cell with **fewer than two** live neighbours (<span class="text-cyan-300 font-semibold">cyan</span>) dies.</p>
+                    <canvas class="mini-canvas" id="rule1-canvas" width="300" height="200"></canvas>
+                    <button class="btn w-full replay-btn" data-sim="0">Play Example</button>
                 </div>
-            </div>
-            <div class="rule-card">
-                <h3 class="font-bold text-lg text-white mb-2">3. Overpopulation</h3>
-                <p class="text-sm text-gray-400 mb-4">A living cell with **more than three** live neighbours dies, as if by overcrowding.</p>
-                 <div class="flex gap-4">
-                    <div>
-                        <canvas class="mini-canvas" id="rule3a-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="4">Replay (4 Neighbors)</button>
-                    </div>
-                    <div>
-                        <canvas class="mini-canvas" id="rule3b-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="5">Replay (5 Neighbors)</button>
-                    </div>
+                <div class="rule-card">
+                    <h2 class="text-xl font-bold text-white mb-2">2. Survival</h2>
+                    <p class="text-gray-400 mb-4">A living (<span class="text-yellow-300 font-semibold">yellow</span>) cell with **two or three** live neighbours (<span class="text-cyan-300 font-semibold">cyan</span>) survives.</p>
+                    <canvas class="mini-canvas" id="rule2-canvas" width="300" height="200"></canvas>
+                    <button class="btn w-full replay-btn" data-sim="1">Play Example</button>
                 </div>
-            </div>
-            <div class="rule-card">
-                <h3 class="font-bold text-lg text-white mb-2">4. Reproduction</h3>
-                <p class="text-sm text-gray-400 mb-4">A dead cell with **exactly three** live neighbours becomes a live cell.</p>
-                 <div class="flex gap-4">
-                    <div>
-                        <canvas class="mini-canvas" id="rule4a-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="6">Replay (Example 1)</button>
-                    </div>
-                    <div>
-                        <canvas class="mini-canvas" id="rule4b-canvas"></canvas>
-                        <button class="btn w-full replay-btn" data-sim="7">Replay (Example 2)</button>
-                    </div>
+                <div class="rule-card">
+                    <h2 class="text-xl font-bold text-white mb-2">3. Overpopulation</h2>
+                    <p class="text-gray-400 mb-4">A living (<span class="text-yellow-300 font-semibold">yellow</span>) cell with **more than three** live neighbours (<span class="text-cyan-300 font-semibold">cyan</span>) dies.</p>
+                    <canvas class="mini-canvas" id="rule3-canvas" width="300" height="200"></canvas>
+                    <button class="btn w-full replay-btn" data-sim="2">Play Example</button>
+                </div>
+                <div class="rule-card">
+                    <h2 class="text-xl font-bold text-white mb-2">4. Reproduction</h2>
+                    <p class="text-gray-400 mb-4">A dead (<span class="font-semibold text-gray-400">dark gray</span>) cell with **exactly three** live neighbours (<span class="text-cyan-300 font-semibold">cyan</span>) becomes a live cell.</p>
+                    <canvas class="mini-canvas" id="rule4-canvas" width="300" height="200"></canvas>
+                    <button class="btn w-full replay-btn" data-sim="3">Play Example</button>
                 </div>
             </div>
         </div>
-    </div>
-
-    <div id="controlsPanel" class="panel controls">
-        <button id="startStopBtn" class="btn">Start</button>
-        <button id="stepBtn" class="btn">Step</button>
-        <div class="relative btn hover:transform-none">
-            <select id="seedSelect" class="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer">
-                <option value="random">Random</option>
-                <optgroup label="Still Lifes">
-                    <option value="block">Block</option>
-                    <option value="beehive">Beehive</option>
-                    <option value="loaf">Loaf</option>
-                    <option value="boat">Boat</option>
-                    <option value="tub">Tub</option>
-                </optgroup>
-                <optgroup label="Spaceships">
-                    <option value="glider">Glider</option>
-                    <option value="lwss">Lightweight Spaceship</option>
-                    <option value="mwss">Middleweight Spaceship</option>
-                    <option value="hwss">Heavyweight Spaceship</option>
-                    <option value="copperhead">Copperhead</option>
-                </optgroup>
-                <optgroup label="Oscillators">
-                    <option value="blinker">Blinker</option>
-                    <option value="toad">Toad</option>
-                    <option value="beacon">Beacon</option>
-                    <option value="pulsar">Pulsar</option>
-                    <option value="pentadecathlon">Pentadecathlon</option>
-                    <option value="figureEight">Figure Eight</option>
-                </optgroup>
-                <optgroup label="Guns & Puffers">
-                     <option value="gosperGliderGun">Gosper Glider Gun</option>
-                    <option value="simkinGliderGun">Simkin Glider Gun</option>
-                    <option value="blockLayingSwitchEngine">Block Laying Switch Engine</option>
-                </optgroup>
-                <optgroup label="Methuselahs">
-                    <option value="rPentomino">R-pentomino</option>
-                    <option value="acorn">Acorn</option>
-                    <option value="diehard">Diehard</option>
-                </optgroup>
-                 <optgroup label="Exotic">
-                    <option value="gliderDuplicator">Glider Duplicator</option>
-                    <option value="max">Max</option>
-                </optgroup>
-            </select>
-            <span id="seedSelectLabel">Random</span>
-            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-            </div>
-        </div>
-        <button id="resetBtn" class="btn">Reset</button>
-        <button id="settingsBtn" class="btn">Settings</button>
-        <button id="killModeBtn" class="btn">Kill</button>
-        <button id="docsBtn" class="btn">Rules</button>
-        <button id="fullscreenBtn" class="btn">Fullscreen</button>
-        <button id="hideBtn" class="btn">Hide</button>
-    </div>
-
-    <div id="miniControlsPanel" class="mini-controls hidden">
-        <button id="miniStartStopBtn" class="mini-btn">
-            <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-        </button>
-        <button id="miniKillModeBtn" class="mini-btn">
-             <svg id="drawIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-            <svg id="killIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M20 20a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"></path><path d="M16 16.5 8 8.5"></path><path d="m8 16.5 8-8"></path></svg>
-        </button>
-        <button id="unhideBtn" class="mini-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        </button>
-        <button id="hideAllBtn" class="mini-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
-        </button>
     </div>
 
 <script id="vertex-shader" type="x-shader/x-vertex">
@@ -418,14 +331,10 @@
     varying vec3 v_color;
 
     void main() {
-        // Center the position on the pixel to avoid rounding errors and gaps.
         vec2 centered_position = a_position + 0.5;
-
-        // Convert cell coordinates (e.g., 0 to cols) to clip space (-1.0 to 1.0)
         vec2 zeroToOne = centered_position / u_canvasResolution;
         vec2 zeroToTwo = zeroToOne * 2.0;
         vec2 clipSpace = zeroToTwo - 1.0;
-
         gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);
         gl_PointSize = u_pointSize;
         v_color = a_color;
@@ -437,8 +346,6 @@
     varying vec3 v_color;
 
     void main() {
-        // By checking the coordinate within the point, we can discard the anti-aliased edges,
-        // effectively creating a sharp square instead of a soft circle.
         vec2 coord = gl_PointCoord - 0.5;
         if (abs(coord.x) > 0.5 || abs(coord.y) > 0.5) {
             discard;
@@ -450,7 +357,6 @@
 <script id="worker-script" type="javascript/worker">
     // --- Web Worker Logic ---
 
-    // These functions are duplicated in the worker for self-containment.
     function cellKey(col, row) { return `${col},${row}`; }
     function fromCellKey(key) { return key.split(',').map(Number); }
 
@@ -482,7 +388,6 @@
             }
         }
 
-        // Convert Map back to array for transferring back to the main thread.
         postMessage(Array.from(nextLiveCells.entries()));
     };
 </script>
@@ -501,11 +406,10 @@
     let time = 0;
     let worker;
     let isCalculating = false;
-    let miniSims = [];
 
     let settings = {
         resolution: 3,
-        frameRate: 30,
+        frameRate: 60,
         rainbowSpeed: 1.0,
         cellColor: [6/255, 182/255, 212/255],
         colorEffect: 4
@@ -695,7 +599,7 @@
 
         cols = Math.ceil(canvas.width / settings.resolution);
         rows = Math.ceil(canvas.height / settings.resolution);
-        loadSeed('random'); // Load random on resize
+        loadSeed('random');
     }
 
     function loadSeed(seedName) {
@@ -745,10 +649,10 @@
         const row = Math.floor(y / settings.resolution);
 
         if (isKillMode) {
-            const radius = 10; // 20x20 area
+            const radius = 10;
             for (let i = -radius; i <= radius; i++) {
                 for (let j = -radius; j <= radius; j++) {
-                    if (i*i + j*j <= radius*radius) { // circular brush
+                    if (i*i + j*j <= radius*radius) {
                         const key = cellKey((col + i + cols) % cols, (row + j + rows) % rows);
                         liveCells.delete(key);
                     }
@@ -801,12 +705,9 @@
 
     function hslToRgb(h, s, l) {
         let r, g, b;
-        if (s == 0) {
-            r = g = b = l;
-        } else {
+        if (s == 0) { r = g = b = l; } else {
             const hue2rgb = (p, q, t) => {
-                if (t < 0) t += 1;
-                if (t > 1) t -= 1;
+                if (t < 0) t += 1; if (t > 1) t -= 1;
                 if (t < 1/6) return p + (q - p) * 6 * t;
                 if (t < 1/2) return q;
                 if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
@@ -814,9 +715,7 @@
             };
             const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
             const p = 2 * l - q;
-            r = hue2rgb(p, q, h + 1/3);
-            g = hue2rgb(p, q, h);
-            b = hue2rgb(p, q, h - 1/3);
+            r = hue2rgb(p, q, h + 1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1/3);
         }
         return [r, g, b];
     }
@@ -827,7 +726,7 @@
             [1.0, 0.84, 0.04], [0.98, 0.34, 0.22], [0.94, 0.36, 0.71],
             [0.85, 0.02, 0.16], [0.29, 0.0, 0.12], [0.29, 0.0, 0.12]
         ];
-        return colors[Math.floor(count)];
+        return colors[Math.min(Math.floor(count), 8)];
     }
 
     function getNeighborCount(col, row) {
@@ -849,8 +748,7 @@
             document.getElementById('stepBtn').addEventListener('click', () => { if(!isRunning) { nextGen(); }});
             document.getElementById('seedSelect').addEventListener('change', (e) => {
                 loadSeed(e.target.value);
-                const label = document.getElementById('seedSelectLabel');
-                label.textContent = e.target.options[e.target.selectedIndex].text;
+                document.getElementById('seedSelectLabel').textContent = e.target.options[e.target.selectedIndex].text;
             });
             document.getElementById('resetBtn').addEventListener('click', () => { resetGrid(); });
             document.getElementById('settingsBtn').addEventListener('click', ui.toggleSettings);
@@ -862,30 +760,22 @@
             document.getElementById('miniStartStopBtn').addEventListener('click', ui.toggleRun);
             document.getElementById('miniKillModeBtn').addEventListener('click', ui.toggleKillMode);
             document.getElementById('hideAllBtn').addEventListener('click', ui.hideAll);
-            document.getElementById('docsBtn').addEventListener('click', ui.toggleDocs);
-            document.getElementById('closeDocsBtn').addEventListener('click', ui.toggleDocs);
+            document.getElementById('rulesBtn').addEventListener('click', ui.showRules);
+            document.getElementById('closeRulesBtn').addEventListener('click', ui.hideRules);
 
             canvas.addEventListener('mousedown', ui.handleMouseDown);
             canvas.addEventListener('mousemove', ui.handleMouseMove);
             canvas.addEventListener('mouseup', () => isDrawing = false);
-            canvas.addEventListener('mouseleave', () => {
-                isDrawing = false;
-                killCursor.classList.add('hidden');
-            });
-            canvas.addEventListener('mouseenter', (e) => {
-                if (isKillMode) {
-                    killCursor.classList.remove('hidden');
-                    ui.updateKillCursor(e);
-                }
-            });
+            canvas.addEventListener('mouseleave', () => { isDrawing = false; killCursor.classList.add('hidden'); });
+            canvas.addEventListener('mouseenter', (e) => { if (isKillMode) { killCursor.classList.remove('hidden'); ui.updateKillCursor(e); } });
             canvas.addEventListener('touchstart', ui.handleMouseDown, { passive: false });
             canvas.addEventListener('touchmove', ui.handleMouseMove, { passive: false });
             canvas.addEventListener('touchend', () => isDrawing = false);
 
             document.getElementById('resolutionInput').addEventListener('change', e => ui.updateSetting('resolution', e.target.value));
             document.getElementById('resolutionSlider').addEventListener('input', e => ui.updateSetting('resolution', e.target.value));
-            document.getElementById('fpsInput').addEventListener('change', e => ui.updateSetting('frameRate', e.target.value));
-            document.getElementById('fpsSlider').addEventListener('input', e => ui.updateSetting('frameRate', e.target.value));
+            document.getElementById('frameRateInput').addEventListener('change', e => ui.updateSetting('frameRate', e.target.value));
+            document.getElementById('frameRateSlider').addEventListener('input', e => ui.updateSetting('frameRate', e.target.value));
             document.getElementById('rainbowSpeedInput').addEventListener('change', e => ui.updateSetting('rainbowSpeed', e.target.value));
             document.getElementById('rainbowSpeedSlider').addEventListener('input', e => ui.updateSetting('rainbowSpeed', e.target.value));
             document.getElementById('colorPicker').addEventListener('input', e => {
@@ -904,13 +794,7 @@
                     const step = parseFloat(btn.dataset.step);
                     let value = parseFloat(input.value) + step;
                     value = Math.max(parseFloat(input.min), Math.min(parseFloat(input.max), value));
-                    ui.updateSetting(input.dataset.key, value);
-                });
-            });
-            document.querySelectorAll('.replay-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const simIndex = parseInt(e.target.dataset.sim);
-                    miniSims[simIndex].resetAndRun();
+                    if(input.dataset.key) ui.updateSetting(input.dataset.key, value);
                 });
             });
         },
@@ -922,10 +806,6 @@
             } else {
                 panel.style.bottom = '';
             }
-        },
-        toggleDocs() {
-            document.getElementById('docsPanel').classList.toggle('hidden');
-            miniSims.forEach(sim => sim.resetAndRun());
         },
         updateSettingsPanelPosition() {
             const controlsPanel = document.getElementById('controlsPanel');
@@ -971,7 +851,7 @@
         },
         toggleFullscreen() {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-            else document.exitFullscreen();
+            else if (document.exitFullscreen) document.exitFullscreen();
         },
         handleMouseDown(e) {
             if(e.touches) e.preventDefault();
@@ -1013,117 +893,181 @@
 
             if (inputEl) {
                 const step = inputEl.getAttribute('step');
-                if (step && step.includes('.')) {
-                    inputEl.value = numValue.toFixed(1);
-                } else {
-                    inputEl.value = Math.round(numValue);
-                }
+                inputEl.value = (step && step.includes('.')) ? numValue.toFixed(1) : Math.round(numValue);
             }
-            if (sliderEl) {
-                sliderEl.value = numValue;
-            }
+            if (sliderEl) sliderEl.value = numValue;
 
-            if (key === 'resolution') {
-                resizeCanvas();
-            }
+            if (key === 'resolution') resizeCanvas();
         },
         initialize() {
             document.getElementById('resolutionInput').value = settings.resolution;
             document.getElementById('resolutionSlider').value = settings.resolution;
-            document.getElementById('fpsInput').value = settings.frameRate;
-            document.getElementById('fpsSlider').value = settings.frameRate;
+            document.getElementById('frameRateInput').value = settings.frameRate;
+            document.getElementById('frameRateSlider').value = settings.frameRate;
             document.getElementById('rainbowSpeedInput').value = settings.rainbowSpeed.toFixed(1);
             document.getElementById('rainbowSpeedSlider').value = settings.rainbowSpeed;
             document.getElementById('colorPicker').value = `#${settings.cellColor.map(c => Math.round(c*255).toString(16).padStart(2,'0')).join('')}`;
             document.getElementById('colorEffectSelect').value = settings.colorEffect;
+        },
+        showRules() {
+            document.getElementById('rulesScreen').style.display = 'block';
+            document.getElementById('gameContainer').style.display = 'none';
+            if (isRunning) ui.toggleRun(); // Pause game
+            rulesSim.init();
+        },
+        hideRules() {
+            document.getElementById('rulesScreen').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'block';
+            rulesSim.stopAll();
         }
     };
 
-    // --- Mini Sim Class for Docs ---
+    // --- Rules Screen Mini-Simulations ---
+    const rulesSim = {
+        sims: [],
+        isInitialized: false,
+        configs: [
+            { center: {x: 7, y: 5, type: 'main'}, neighbors: [{x: 6, y: 5, type: 'neighbor'}] }, // Underpopulation
+            { center: {x: 7, y: 5, type: 'main'}, neighbors: [{x: 6, y: 5, type: 'neighbor'}, {x: 8, y: 5, type: 'neighbor'}] }, // Survival
+            { center: {x: 7, y: 5, type: 'main'}, neighbors: [{x: 6, y: 5, type: 'neighbor'}, {x: 8, y: 5, type: 'neighbor'}, {x: 6, y: 4, type: 'neighbor'}, {x: 8, y: 4, type: 'neighbor'}] }, // Overpopulation
+            { center: {x: 7, y: 5, type: 'dead'}, neighbors: [{x: 6, y: 5, type: 'neighbor'}, {x: 8, y: 5, type: 'neighbor'}, {x: 7, y: 4, type: 'neighbor'}] }  // Reproduction
+        ],
+        init() {
+            if (this.isInitialized) {
+                this.sims.forEach(sim => sim.run());
+                return;
+            };
+            this.configs.forEach((config, i) => {
+                const canvasId = `rule${i+1}-canvas`;
+                this.sims[i] = new MiniSim(canvasId, config);
+                this.sims[i].draw();
+            });
+            document.querySelectorAll('.replay-btn').forEach(btn => {
+                btn.onclick = () => {
+                    const simIndex = parseInt(btn.dataset.sim);
+                    this.sims[simIndex].run();
+                };
+            });
+            this.isInitialized = true;
+        },
+        stopAll() {
+            this.sims.forEach(sim => sim.stop());
+        }
+    };
+
     class MiniSim {
-        constructor(canvasId, initialPattern) {
+        constructor(canvasId, config) {
             this.canvas = document.getElementById(canvasId);
             this.ctx = this.canvas.getContext('2d');
-            this.initialPattern = initialPattern;
-            this.grid = [];
-            this.cols = 5;
-            this.rows = 5;
-            this.resolution = this.canvas.width / this.cols;
+            this.config = config;
+            this.cols = 15;
+            this.rows = 10;
+            this.cellSize = this.canvas.width / this.cols;
+            this.colors = {
+                main: '#facc15', // yellow-400
+                neighbor: '#67e8f9', // cyan-300
+                dead: '#4b5563', // gray-600
+                background: '#111827', // gray-900
+            };
+            this.animationTimer = null;
             this.reset();
         }
 
         reset() {
-            this.grid = new Array(this.cols).fill(null).map(() => new Array(this.rows).fill(0));
-            for (const [x, y] of this.initialPattern) {
-                this.grid[x][y] = 1;
-            }
-            this.draw();
+            this.grid = Array(this.cols * this.rows).fill(null);
+            const { center, neighbors } = this.config;
+            this.setCell(center.x, center.y, center.type);
+            neighbors.forEach(n => this.setCell(n.x, n.y, n.type));
         }
 
-        nextGen() {
-            const nextGrid = new Array(this.cols).fill(null).map(() => new Array(this.rows).fill(0));
-            for (let col = 0; col < this.cols; col++) {
-                for (let row = 0; row < this.rows; row++) {
-                    const cell = this.grid[col][row];
-                    let numNeighbors = 0;
-                    for (let i = -1; i < 2; i++) {
-                        for (let j = -1; j < 2; j++) {
+        setCell(x, y, type) {
+            if (x >= 0 && x < this.cols && y >= 0 && y < this.rows) {
+                this.grid[y * this.cols + x] = type;
+            }
+        }
+
+        getCell(x, y) {
+            if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return null;
+            return this.grid[y * this.cols + x];
+        }
+
+        draw() {
+            this.ctx.fillStyle = this.colors.background;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            for (let y = 0; y < this.rows; y++) {
+                for (let x = 0; x < this.cols; x++) {
+                    const type = this.getCell(x, y);
+                    if (type) {
+                        this.ctx.fillStyle = this.colors[type];
+                        // Add a small gap to make cells distinct
+                        this.ctx.fillRect(x * this.cellSize + 1, y * this.cellSize + 1, this.cellSize - 2, this.cellSize - 2);
+                    }
+                }
+            }
+        }
+
+        step() {
+            const nextGrid = Array(this.cols * this.rows).fill(null);
+            for (let y = 0; y < this.rows; y++) {
+                for (let x = 0; x < this.cols; x++) {
+                    const type = this.getCell(x, y);
+                    let liveNeighbors = 0;
+                    for (let i = -1; i <= 1; i++) {
+                        for (let j = -1; j <= 1; j++) {
                             if (i === 0 && j === 0) continue;
-                            const x_cell = col + i;
-                            const y_cell = row + j;
-                            if (x_cell >= 0 && y_cell >= 0 && x_cell < this.cols && y_cell < this.rows) {
-                                numNeighbors += this.grid[x_cell][y_cell];
+                            const neighborType = this.getCell(x + i, y + j);
+                            if (neighborType === 'main' || neighborType === 'neighbor') {
+                                liveNeighbors++;
                             }
                         }
                     }
-                    if (cell === 1 && numNeighbors < 2) nextGrid[col][row] = 0;
-                    else if (cell === 1 && numNeighbors > 3) nextGrid[col][row] = 0;
-                    else if (cell === 0 && numNeighbors === 3) nextGrid[col][row] = 1;
-                    else nextGrid[col][row] = cell;
+
+                    const index = y * this.cols + x;
+                    if (type === 'main') {
+                        if (liveNeighbors === 2 || liveNeighbors === 3) {
+                            nextGrid[index] = 'main'; // Survive
+                        }
+                    } else if (type === 'neighbor') {
+                         if (liveNeighbors === 2 || liveNeighbors === 3) {
+                            nextGrid[index] = 'neighbor'; // Survive
+                        }
+                    }
+                    else { // dead cell
+                        if (liveNeighbors === 3) {
+                            nextGrid[index] = 'main'; // Reproduce
+                        }
+                    }
                 }
             }
             this.grid = nextGrid;
             this.draw();
         }
 
-        draw() {
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            for (let col = 0; col < this.cols; col++) {
-                for (let row = 0; row < this.rows; row++) {
-                    this.ctx.beginPath();
-                    this.ctx.rect(col * this.resolution, row * this.resolution, this.resolution, this.resolution);
-                    if (this.grid[col][row]) {
-                         this.ctx.fillStyle = (col === 2 && row === 2) ? '#ffd60a' : '#06d6a0';
-                    } else {
-                         this.ctx.fillStyle = (col === 2 && row === 2) ? '#4b5563' : '#1f2937';
-                    }
-                    this.ctx.fill();
-                }
-            }
+        run() {
+            this.stop();
+            this.reset();
+            this.draw();
+            this.animationTimer = setTimeout(() => {
+                this.step();
+            }, 800);
         }
 
-        resetAndRun() {
-            this.reset();
-            setTimeout(() => this.nextGen(), 500);
+        stop() {
+            if (this.animationTimer) {
+                clearTimeout(this.animationTimer);
+                this.animationTimer = null;
+            }
         }
     }
 
+    // --- App Initialization ---
     window.addEventListener('load', () => {
         setupWorker();
         if (setupWebGL()) {
             ui.initialize();
             ui.init();
             resizeCanvas();
-
-            // Initialize mini-sims
-            miniSims.push(new MiniSim('rule1a-canvas', [[2,1],[2,2]]));
-            miniSims.push(new MiniSim('rule1b-canvas', [[2,2]]));
-            miniSims.push(new MiniSim('rule2a-canvas', [[1,1],[2,1],[2,2]]));
-            miniSims.push(new MiniSim('rule2b-canvas', [[1,1],[2,1],[1,2],[2,2]]));
-            miniSims.push(new MiniSim('rule3a-canvas', [[1,1],[2,1],[3,1],[2,2],[1,2]]));
-            miniSims.push(new MiniSim('rule3b-canvas', [[1,1],[2,1],[3,1],[1,2],[3,2],[2,2]]));
-            miniSims.push(new MiniSim('rule4a-canvas', [[1,1],[2,1],[3,1]]));
-            miniSims.push(new MiniSim('rule4b-canvas', [[1,2],[3,2],[2,1]]));
         }
     });
     window.addEventListener('resize', () => {
